@@ -7,7 +7,7 @@ defmodule Coinex.FuturesExchange do
   use GenServer
   require Logger
 
-  alias Coinex.FuturesExchange.{Order, Position, Balance}
+  alias Coinex.FuturesExchange.{Order, Position, Balance, ActionCalculator}
 
   @market "BTCUSDT"
   @price_update_interval 60_000  # 1 minute
@@ -198,18 +198,17 @@ defmodule Coinex.FuturesExchange do
         {:reply, {:error, "Order cannot be cancelled"}, state}
       
       order ->
-        # Release frozen funds
+        # Apply cancel_order action using pure function
+        {new_balance, new_positions} = ActionCalculator.calculate_action_effect(
+          state.balance,
+          state.positions,
+          {:cancel_order, order}
+        )
+        
         updated_order = %{order | status: "cancelled", updated_at: DateTime.utc_now()}
         new_orders = Map.put(state.orders, order_id, updated_order)
         
-        # Use stored frozen amount instead of recalculating
-        released_amount = order.frozen_amount
-        new_balance = %{state.balance | 
-          available: Decimal.add(state.balance.available, released_amount),
-          frozen: Decimal.sub(state.balance.frozen, released_amount)
-        }
-        
-        new_state = %{state | orders: new_orders, balance: new_balance}
+        new_state = %{state | orders: new_orders, balance: new_balance, positions: new_positions}
         {:reply, {:ok, updated_order}, new_state}
     end
   end
@@ -252,7 +251,7 @@ defmodule Coinex.FuturesExchange do
         {:noreply, final_final_state}
       
       {:error, reason} ->
-        Logger.error("Failed to fetch price: #{reason}")
+        Logger.error("Failed to fetch price: #{inspect(reason)}")
         # Retry in 10 seconds
         timer_ref = Process.send_after(self(), :fetch_price, 10_000)
         {:noreply, %{state | price_update_timer: timer_ref}}
@@ -295,17 +294,32 @@ defmodule Coinex.FuturesExchange do
         frozen_amount: Decimal.new("0")  # Will be updated after calculation
       }
       
-      # Freeze funds for the order and store the frozen amount
-      {frozen_amount, new_balance} = freeze_funds_for_order(state.balance, order, state.current_price, state.positions, state.orders)
+      # Set price for market orders using current price
+      order_with_price = if type == "market" do
+        %{order | price: state.current_price}
+      else
+        order
+      end
       
-      # Update order with the actual frozen amount
-      order_with_frozen = %{order | frozen_amount: frozen_amount}
+      # Calculate frozen amount using pure function
+      frozen_amount = ActionCalculator.calculate_frozen_for_order(order_with_price, state.positions)
+      
+      # Update order with the calculated frozen amount
+      order_with_frozen = %{order_with_price | frozen_amount: frozen_amount}
+      
+      # Apply place_order action to get new balance and positions
+      {new_balance, new_positions} = ActionCalculator.calculate_action_effect(
+        state.balance, 
+        state.positions, 
+        {:place_order, order_with_frozen}
+      )
       
       new_orders = Map.put(state.orders, order_id, order_with_frozen)
       new_state = %{state | 
         orders: new_orders,
         order_id_counter: order_id + 1,
-        balance: new_balance
+        balance: new_balance,
+        positions: new_positions
       }
       
       {:ok, order_with_frozen, new_state}
@@ -530,14 +544,15 @@ defmodule Coinex.FuturesExchange do
       updated_at: DateTime.utc_now()
     }
     
+    # Apply fill_order action using pure function
+    {new_balance, new_positions} = ActionCalculator.calculate_action_effect(
+      state.balance,
+      state.positions,
+      {:fill_order, order, fill_price}
+    )
+    
     # Update orders
     new_orders = Map.put(state.orders, order.id, filled_order)
-    
-    # Update position with the complete order amount
-    new_positions = update_position_after_complete_fill(state.positions, order, fill_price)
-    
-    # Update balance (unfreeze funds using original positions state)
-    new_balance = update_balance_after_complete_fill(state.balance, order, fill_price, state.positions, state.orders)
     
     new_state = %{state |
       orders: new_orders,
@@ -637,20 +652,12 @@ defmodule Coinex.FuturesExchange do
 
   defp update_positions_pnl(state) when is_nil(state.current_price), do: state
   defp update_positions_pnl(state) do
-    new_positions = 
-      Enum.into(state.positions, %{}, fn {market, position} ->
-        updated_position = calculate_position_pnl(position, state.current_price)
-        {market, updated_position}
-      end)
-    
-    # Update balance with total unrealized PnL
-    total_unrealized_pnl = 
-      new_positions
-      |> Map.values()
-      |> Enum.map(& &1.unrealized_pnl)
-      |> Enum.reduce(Decimal.new("0"), &Decimal.add/2)
-    
-    new_balance = %{state.balance | unrealized_pnl: total_unrealized_pnl}
+    # Apply update_price action using pure function
+    {new_balance, new_positions} = ActionCalculator.calculate_action_effect(
+      state.balance,
+      state.positions,
+      {:update_price, state.current_price}
+    )
     
     %{state | positions: new_positions, balance: new_balance}
   end
