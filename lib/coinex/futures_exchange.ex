@@ -113,6 +113,10 @@ defmodule Coinex.FuturesExchange do
     GenServer.call(__MODULE__, :get_balance)
   end
 
+  def reset_state do
+    GenServer.call(__MODULE__, :reset_state)
+  end
+
   ## Server Callbacks
 
   @impl true
@@ -235,6 +239,28 @@ defmodule Coinex.FuturesExchange do
   def handle_call(:get_balance, _from, state) do
     balance_with_margin = calculate_balance_with_margin(state)
     {:reply, balance_with_margin, state}
+  end
+
+  @impl true
+  def handle_call(:reset_state, _from, _state) do
+    initial_balance = %Balance{
+      available: Decimal.new("10000.00"),    # Start with 10k USDT
+      frozen: Decimal.new("0.00"),
+      margin_used: Decimal.new("0.00"),
+      total: Decimal.new("10000.00"),
+      unrealized_pnl: Decimal.new("0.00")
+    }
+
+    new_state = %State{
+      current_price: nil,
+      orders: %{},
+      positions: %{},
+      balance: initial_balance,
+      order_id_counter: 1,
+      price_update_timer: nil
+    }
+
+    {:reply, :ok, new_state}
   end
 
   @impl true

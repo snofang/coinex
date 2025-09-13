@@ -107,8 +107,10 @@ defmodule Coinex.MarginCalculationTest do
       assert Decimal.equal?(balance.unrealized_pnl, expected_pnl),
         "Expected unrealized PnL to be #{expected_pnl}, got #{balance.unrealized_pnl}"
       
-      # Total balance should include PnL
-      expected_total = Decimal.add(Decimal.new("9500.0"), expected_pnl)  # 10000 - 500 (used) + 10 (PnL)
+      # Total balance should include PnL minus trading fees
+      # Trading fee = 500 * 0.0005 = 0.25
+      trading_fee = Decimal.mult(Decimal.new("500.0"), Decimal.new("0.0005"))  # 0.05% taker fee
+      expected_total = Decimal.sub(Decimal.add(Decimal.new("9500.0"), expected_pnl), trading_fee)
       assert Decimal.equal?(balance.total, expected_total),
         "Expected total balance to be #{expected_total}, got #{balance.total}"
     end

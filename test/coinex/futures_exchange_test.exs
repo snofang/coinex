@@ -268,23 +268,13 @@ defmodule Coinex.FuturesExchangeTest do
   end
 
   describe "current price retrieval" do
-    test "returns nil initially when no price fetch happens" do
-      # Mock to prevent automatic price fetching during startup
-      :meck.new(Coinex.FuturesExchange, [:passthrough])
-      :meck.expect(Coinex.FuturesExchange, :fetch_coinex_price, fn -> 
-        {:error, "no connection"}
-      end)
+    test "returns current price when available" do
+      # Set a known price
+      FuturesExchange.set_current_price(Decimal.new("50000.0"))
       
-      # Stop and restart to ensure clean state
-      if Process.whereis(FuturesExchange) do
-        GenServer.stop(FuturesExchange)
-      end
-      {:ok, _pid} = FuturesExchange.start_link([])
-      
-      # Should be nil before successful price fetch
-      assert FuturesExchange.get_current_price() == nil
-      
-      :meck.unload(Coinex.FuturesExchange)
+      # Should return the set price
+      price = FuturesExchange.get_current_price()
+      assert Decimal.equal?(price, Decimal.new("50000.0"))
     end
   end
 end

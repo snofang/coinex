@@ -148,12 +148,12 @@ defmodule CoinexWeb.FuturesController do
       message: "Ok",
       data: %{
         "USDT" => %{
-          available: Decimal.to_string(balance.available),
-          frozen: Decimal.to_string(balance.frozen),
-          transfer: "0",  # Not implemented
-          balance_total: Decimal.to_string(balance.total),
-          margin: Decimal.to_string(balance.margin_used),
-          profit_unreal: Decimal.to_string(balance.unrealized_pnl)
+          available: format_decimal(balance.available),
+          frozen: format_decimal(balance.frozen),
+          transfer: "0.00",  # Not implemented
+          balance_total: format_decimal(balance.total),
+          margin: format_decimal(balance.margin_used),
+          profit_unreal: format_decimal(balance.unrealized_pnl || Decimal.new("0"))
         }
       }
     })
@@ -216,5 +216,21 @@ defmodule CoinexWeb.FuturesController do
       created_at: DateTime.to_unix(position.created_at),
       updated_at: DateTime.to_unix(position.updated_at)
     }
+  end
+
+  # Helper to format decimal with 2 decimal places
+  defp format_decimal(decimal) do
+    decimal
+    |> Decimal.round(2)
+    |> Decimal.to_string(:normal)
+    |> ensure_two_decimals()
+  end
+
+  defp ensure_two_decimals(str) do
+    case String.split(str, ".") do
+      [integer] -> "#{integer}.00"
+      [integer, decimal] when byte_size(decimal) == 1 -> "#{integer}.#{decimal}0"
+      [integer, decimal] -> "#{integer}.#{String.slice(decimal, 0, 2)}"
+    end
   end
 end

@@ -31,8 +31,8 @@ defmodule CoinexWeb.ConnCase do
     end
   end
 
-  setup tags do
-    Coinex.DataCase.setup_sandbox(tags)
+  setup _tags do
+    # Skip database setup since this app doesn't use persistent storage
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 end

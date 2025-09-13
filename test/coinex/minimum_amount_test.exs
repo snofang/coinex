@@ -7,7 +7,10 @@ defmodule Coinex.MinimumAmountTest do
     if Process.whereis(FuturesExchange) do
       GenServer.stop(FuturesExchange)
     end
-    {:ok, _pid} = FuturesExchange.start_link([])
+    case FuturesExchange.start_link([]) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+    end
     
     # Set predictable price
     FuturesExchange.set_current_price(Decimal.new("50000.0"))
@@ -59,8 +62,11 @@ defmodule Coinex.MinimumAmountTest do
       
       assert Decimal.equal?(balance.margin_used, expected_margin)
       
-      # Available balance should be reduced by the spent amount
-      expected_available = Decimal.new("9995.0")  # 10000 - 5
+      # Available balance should be reduced by trading fee (5 * 0.0005 = 0.0025)
+      # Also, margin is used so available balance = 10000 - margin_used - fee
+      order_value = Decimal.new("5.0")  # 0.0001 * 50000
+      fee = Decimal.mult(order_value, Decimal.new("0.0005"))  # 0.05% taker fee
+      expected_available = Decimal.sub(Decimal.sub(Decimal.new("10000.0"), expected_margin), fee)  # 10000 - 5 - 0.0025
       assert Decimal.equal?(balance.available, expected_available)
     end
 
