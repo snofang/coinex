@@ -13,6 +13,10 @@ defmodule Coinex.FuturesExchange do
   @price_update_interval 60_000  # 1 minute
   @minimum_order_amount Decimal.new("0.0001")  # Minimum order amount in BTC
 
+  # CoinEx Real Trading Fee Rates (VIP 0 level)
+  @maker_fee_rate Decimal.new("0.0003")    # 0.03% for limit orders (maker)
+  @taker_fee_rate Decimal.new("0.0005")    # 0.05% for market orders (taker)
+
   defmodule State do
     defstruct [
       :current_price,
@@ -38,7 +42,10 @@ defmodule Coinex.FuturesExchange do
       :created_at,
       :updated_at,
       :client_id,
-      :frozen_amount      # Amount frozen when order was placed
+      :frozen_amount,     # Amount frozen when order was placed
+      :fee_rate,          # Fee rate applied (maker/taker)
+      :fee_amount,        # Actual fee charged
+      :net_amount         # Amount after fees (for filled orders)
     ]
   end
 
@@ -62,7 +69,8 @@ defmodule Coinex.FuturesExchange do
       :frozen,           # Frozen balance (in orders)
       :margin_used,      # Used for positions
       :total,            # Total balance
-      :unrealized_pnl    # Unrealized PnL from positions
+      :unrealized_pnl,   # Unrealized PnL from positions
+      :total_fees_paid   # Cumulative fees paid (for analytics)
     ]
   end
 

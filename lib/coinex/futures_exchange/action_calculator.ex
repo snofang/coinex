@@ -9,6 +9,10 @@ defmodule Coinex.FuturesExchange.ActionCalculator do
   """
 
   alias Coinex.FuturesExchange.{Balance, Position, Order}
+  
+  # CoinEx Real Fee Rates (VIP 0 level)
+  @maker_fee_rate Decimal.new("0.0003")    # 0.03% for limit orders
+  @taker_fee_rate Decimal.new("0.0005")    # 0.05% for market orders
 
   @doc """
   Calculate the effect of an action on balance and positions.
@@ -35,7 +39,7 @@ defmodule Coinex.FuturesExchange.ActionCalculator do
     # Update total to maintain consistency: available + frozen + margin_used + unrealized_pnl
     updated_total = Decimal.add(
       Decimal.add(updated_available, updated_frozen),
-      Decimal.add(balance.margin_used, balance.unrealized_pnl)
+      Decimal.add(balance.margin_used, balance.unrealized_pnl || Decimal.new("0"))
     )
     
     new_balance = %{balance |
@@ -57,7 +61,7 @@ defmodule Coinex.FuturesExchange.ActionCalculator do
     # Update total to maintain consistency: available + frozen + margin_used + unrealized_pnl
     updated_total = Decimal.add(
       Decimal.add(updated_available, updated_frozen),
-      Decimal.add(balance.margin_used, balance.unrealized_pnl)
+      Decimal.add(balance.margin_used, balance.unrealized_pnl || Decimal.new("0"))
     )
     
     new_balance = %{balance |
@@ -70,33 +74,47 @@ defmodule Coinex.FuturesExchange.ActionCalculator do
   end
 
   def calculate_action_effect(balance, positions, {:fill_order, order, fill_price}) do
-    # Unfreeze the order amount
+    # Calculate CoinEx trading fees based purely on current action
+    fee_rate = if order.type == "market", do: @taker_fee_rate, else: @maker_fee_rate
+    order_value = Decimal.mult(order.amount, fill_price)
+    fee_amount = Decimal.mult(order_value, fee_rate)
+    
+    # Transactional balance updates:
+    # 1. Unfreeze the order amount (add back to available)
+    # 2. Deduct the trading fee (subtract from available)
+    # 3. Track cumulative fees paid
+    after_unfreeze = Decimal.add(balance.available, order.frozen_amount)
+    after_fee = Decimal.sub(after_unfreeze, fee_amount)
+    
     new_balance = %{balance |
-      frozen: Decimal.sub(balance.frozen, order.frozen_amount)
+      frozen: Decimal.sub(balance.frozen, order.frozen_amount),
+      available: after_fee,
+      total_fees_paid: Decimal.add(balance.total_fees_paid || Decimal.new("0"), fee_amount)
     }
     
-    # Update position
+    # Update positions based on the order fill
     new_positions = update_position_for_fill(positions, order, fill_price)
     
-    # Calculate new margin used based on updated positions
+    # Calculate margin changes due to position updates
     old_margin = calculate_total_margin_used(positions)
     new_margin = calculate_total_margin_used(new_positions)
     margin_change = Decimal.sub(new_margin, old_margin)
     
-    # When margin decreases (position closed/reduced), add released margin back to available
-    # When margin increases (position opened/increased), subtract from available
-    updated_available = Decimal.sub(new_balance.available, margin_change)
+    # Adjust available balance for margin changes
+    # If margin decreases (position reduction), available increases
+    # If margin increases (position expansion), available decreases
+    final_available = Decimal.sub(new_balance.available, margin_change)
     
-    # Update total to maintain consistency: available + frozen + margin_used + unrealized_pnl
-    updated_total = Decimal.add(
-      Decimal.add(updated_available, new_balance.frozen),
-      Decimal.add(new_margin, new_balance.unrealized_pnl)
+    # Update total balance maintaining consistency
+    final_total = Decimal.add(
+      Decimal.add(final_available, new_balance.frozen),
+      Decimal.add(new_margin, new_balance.unrealized_pnl || Decimal.new("0"))
     )
     
     final_balance = %{new_balance |
-      available: updated_available,
+      available: final_available,
       margin_used: new_margin,
-      total: updated_total
+      total: final_total
     }
     
     {final_balance, new_positions}
