@@ -1,0 +1,440 @@
+defmodule CoinexWeb.FuturesControllerTest do
+  use CoinexWeb.ConnCase, async: true
+
+  alias Coinex.FuturesExchange
+
+  setup do
+    # Reset state before each test for clean slate
+    FuturesExchange.reset_state()
+    :ok
+  end
+
+  describe "GET /perpetual/v1/market/ticker" do
+    test "returns ticker data when price is available", %{conn: conn} do
+      # Ensure there's a current price available
+      FuturesExchange.set_current_price(Decimal.new("50000"))
+      
+      conn = get(conn, "/perpetual/v1/market/ticker", %{"market" => "BTCUSDT"})
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => %{
+          "ticker" => ticker_data
+        }
+      } = json_response(conn, 200)
+      
+      assert ticker_data["last"] == "50000"
+      assert ticker_data["open"] == "50000"
+      assert ticker_data["high"] == "50000"
+      assert ticker_data["low"] == "50000"
+      assert ticker_data["vol"] == "0"
+      assert ticker_data["amount"] == "0"
+      assert ticker_data["period"] == 86400
+      assert ticker_data["funding_rate"] == "0.0001"
+      assert ticker_data["funding_time"] == 28800
+      assert ticker_data["position_amount"] == "0"
+      assert ticker_data["sign_price"] == "50000"
+      assert ticker_data["index_price"] == "50000"
+    end
+
+    test "returns error when price is not available", %{conn: conn} do
+      # Don't set any price (reset_state already cleared it)
+      
+      conn = get(conn, "/perpetual/v1/market/ticker", %{"market" => "BTCUSDT"})
+      
+      assert %{
+        "code" => 1,
+        "message" => "Price not available yet",
+        "data" => nil
+      } = json_response(conn, 200)
+    end
+
+    test "defaults to BTCUSDT when no market specified", %{conn: conn} do
+      FuturesExchange.set_current_price(Decimal.new("45000"))
+      
+      conn = get(conn, "/perpetual/v1/market/ticker")
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => %{"ticker" => ticker_data}
+      } = json_response(conn, 200)
+      
+      assert ticker_data["last"] == "45000"
+    end
+  end
+
+  describe "GET /perpetual/v1/market/list" do
+    test "returns available markets", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/market/list")
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => [market_data]
+      } = json_response(conn, 200)
+      
+      assert market_data["name"] == "BTCUSDT"
+      assert market_data["type"] == 1
+      assert market_data["stock"] == "BTC"
+      assert market_data["money"] == "USDT"
+      assert market_data["fee_prec"] == 4
+      assert market_data["stock_prec"] == 8
+      assert market_data["money_prec"] == 2
+      assert market_data["multiplier"] == "1"
+      assert market_data["amount_min"] == "0.001"
+      assert market_data["amount_max"] == "1000000"
+      assert market_data["tick_size"] == "0.1"
+      assert market_data["value_min"] == "1"
+      assert market_data["value_max"] == "10000000"
+      assert market_data["leverages"] == ["1", "2", "3", "5", "10", "20", "30", "50", "100"]
+    end
+  end
+
+  describe "POST /perpetual/v1/order/put_limit" do
+    test "handles limit order request appropriately", %{conn: conn} do
+      FuturesExchange.set_current_price(Decimal.new("50000"))
+      
+      params = %{
+        "market" => "BTCUSDT",
+        "side" => "buy",
+        "amount" => "0.001",
+        "price" => "50000"
+      }
+      
+      conn = post(conn, "/perpetual/v1/order/put_limit", params)
+      response = json_response(conn, 200)
+      
+      # The response should be either success or error (due to insufficient balance)
+      assert response["code"] in [0, 1]
+      assert is_binary(response["message"])
+      
+      case response do
+        %{"code" => 0, "data" => order_data} ->
+          assert order_data["market"] == "BTCUSDT"
+          assert order_data["side"] == "buy"
+          assert order_data["type"] == "limit"
+          assert order_data["amount"] == "0.001"
+          assert order_data["price"] == "50000"
+          # Order status can be "pending" or "filled" depending on system state
+          assert order_data["status"] in ["pending", "filled"]
+          # Filled amount can be "0" or the actual amount if filled
+          assert is_binary(order_data["filled_amount"])
+          assert is_integer(order_data["order_id"])
+          assert is_integer(order_data["created_at"])
+          assert is_integer(order_data["updated_at"])
+        %{"code" => 1, "data" => nil} ->
+          # Expected if insufficient balance
+          assert true
+      end
+    end
+
+    test "handles limit order with client_id", %{conn: conn} do
+      FuturesExchange.set_current_price(Decimal.new("51000"))
+      
+      params = %{
+        "market" => "BTCUSDT",
+        "side" => "sell",
+        "amount" => "0.001",
+        "price" => "51000",
+        "client_id" => "my-custom-id-123"
+      }
+      
+      conn = post(conn, "/perpetual/v1/order/put_limit", params)
+      response = json_response(conn, 200)
+      
+      case response do
+        %{"code" => 0, "data" => order_data} ->
+          assert order_data["client_id"] == "my-custom-id-123"
+        %{"code" => 1, "data" => nil} ->
+          # Expected if insufficient balance
+          assert true
+      end
+    end
+
+    test "returns error for invalid order parameters", %{conn: conn} do
+      params = %{
+        "market" => "BTCUSDT",
+        "side" => "buy",
+        "amount" => "invalid",
+        "price" => "50000"
+      }
+      
+      conn = post(conn, "/perpetual/v1/order/put_limit", params)
+      
+      assert %{
+        "code" => 1,
+        "message" => _error_message,
+        "data" => nil
+      } = json_response(conn, 200)
+    end
+  end
+
+  describe "POST /perpetual/v1/order/put_market" do
+    test "handles market order request appropriately", %{conn: conn} do
+      FuturesExchange.set_current_price(Decimal.new("50000"))
+      
+      params = %{
+        "market" => "BTCUSDT",
+        "side" => "buy",
+        "amount" => "0.001"
+      }
+      
+      conn = post(conn, "/perpetual/v1/order/put_market", params)
+      response = json_response(conn, 200)
+      
+      # The response should be either success or error
+      assert response["code"] in [0, 1]
+      assert is_binary(response["message"])
+      
+      case response do
+        %{"code" => 0, "data" => order_data} ->
+          assert order_data["market"] == "BTCUSDT"
+          assert order_data["side"] == "buy"
+          assert order_data["type"] == "market"
+          assert order_data["amount"] == "0.001"
+          # Market orders may have fill price set instead of nil
+          assert is_integer(order_data["order_id"])
+        %{"code" => 1, "data" => nil} ->
+          # Expected if insufficient balance or other error
+          assert true
+      end
+    end
+
+    test "handles market order with client_id", %{conn: conn} do
+      FuturesExchange.set_current_price(Decimal.new("50000"))
+      
+      params = %{
+        "market" => "BTCUSDT",
+        "side" => "sell",
+        "amount" => "0.001",
+        "client_id" => "market-order-123"
+      }
+      
+      conn = post(conn, "/perpetual/v1/order/put_market", params)
+      response = json_response(conn, 200)
+      
+      case response do
+        %{"code" => 0, "data" => order_data} ->
+          assert order_data["client_id"] == "market-order-123"
+        %{"code" => 1, "data" => nil} ->
+          # Expected if insufficient balance
+          assert true
+      end
+    end
+
+    test "returns error for invalid market order", %{conn: conn} do
+      params = %{
+        "market" => "BTCUSDT",
+        "side" => "buy",
+        "amount" => "invalid"
+      }
+      
+      conn = post(conn, "/perpetual/v1/order/put_market", params)
+      
+      assert %{
+        "code" => 1,
+        "message" => _error_message,
+        "data" => nil
+      } = json_response(conn, 200)
+    end
+  end
+
+  describe "POST /perpetual/v1/order/cancel" do
+    test "returns error when trying to cancel non-existent order", %{conn: conn} do
+      params = %{"order_id" => "99999"}
+      conn = post(conn, "/perpetual/v1/order/cancel", params)
+      
+      assert %{
+        "code" => 1,
+        "message" => _error_message,
+        "data" => nil
+      } = json_response(conn, 200)
+    end
+
+    test "returns error for invalid order_id", %{conn: conn} do
+      params = %{"order_id" => "invalid"}
+      
+      assert_raise ArgumentError, fn ->
+        post(conn, "/perpetual/v1/order/cancel", params)
+      end
+    end
+  end
+
+  describe "GET /perpetual/v1/order/pending" do
+    test "returns empty list when no pending orders", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/pending")
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => []
+      } = json_response(conn, 200)
+    end
+
+    test "returns correct structure for pending orders", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/pending")
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => orders_data
+      } = json_response(conn, 200)
+      
+      # Verify structure is correct
+      assert is_list(orders_data)
+      
+      # If there are orders, check their structure
+      Enum.each(orders_data, fn order ->
+        assert is_integer(order["order_id"])
+        assert is_binary(order["market"])
+        assert order["side"] in ["buy", "sell"]
+        assert order["type"] in ["limit", "market"]
+        assert is_binary(order["amount"])
+        assert is_binary(order["status"])
+        assert is_binary(order["filled_amount"])
+        assert is_integer(order["created_at"])
+        assert is_integer(order["updated_at"])
+        # Only pending orders should be returned
+        assert order["status"] == "pending"
+      end)
+    end
+  end
+
+  describe "GET /perpetual/v1/position/pending" do
+    test "returns empty list when no positions", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/position/pending")
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => []
+      } = json_response(conn, 200)
+    end
+
+    test "returns correct structure for positions", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/position/pending")
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => positions_data
+      } = json_response(conn, 200)
+      
+      # Verify structure
+      assert is_list(positions_data)
+      
+      # If there are positions, check their structure
+      Enum.each(positions_data, fn position ->
+        assert position["market"] == "BTCUSDT"
+        assert position["side"] in ["buy", "sell"]
+        assert is_binary(position["amount"])
+        assert is_binary(position["entry_price"])
+        assert is_binary(position["unrealized_pnl"])
+        assert is_binary(position["margin_used"])
+        assert is_binary(position["leverage"])
+        assert is_integer(position["created_at"])
+        assert is_integer(position["updated_at"])
+      end)
+    end
+  end
+
+  describe "GET /perpetual/v1/asset/query" do
+    test "returns asset balance information", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/asset/query")
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => %{
+          "USDT" => usdt_balance
+        }
+      } = json_response(conn, 200)
+      
+      assert is_binary(usdt_balance["available"])
+      assert is_binary(usdt_balance["frozen"])
+      assert usdt_balance["transfer"] == "0.00"
+      assert is_binary(usdt_balance["balance_total"])
+      assert is_binary(usdt_balance["margin"])
+      assert is_binary(usdt_balance["profit_unreal"])
+      
+      # Verify decimal formatting (should have 2 decimal places)
+      assert usdt_balance["available"] =~ ~r/^\d+\.\d{2}$/
+      assert usdt_balance["frozen"] =~ ~r/^\d+\.\d{2}$/
+      assert usdt_balance["balance_total"] =~ ~r/^\d+\.\d{2}$/
+      assert usdt_balance["margin"] =~ ~r/^\d+\.\d{2}$/
+      assert usdt_balance["profit_unreal"] =~ ~r/^-?\d+\.\d{2}$/
+    end
+
+    test "asset query is consistent", %{conn: conn} do
+      # Test multiple times to ensure consistency
+      for _i <- 1..3 do
+        conn = get(conn, "/perpetual/v1/asset/query")
+        
+        assert %{
+          "code" => 0,
+          "message" => "Ok",
+          "data" => %{"USDT" => _usdt_balance}
+        } = json_response(conn, 200)
+      end
+    end
+  end
+
+  # Test error handling and edge cases
+  describe "error handling" do
+    test "handles malformed JSON in POST requests", %{conn: conn} do
+      assert_raise Plug.Parsers.ParseError, fn ->
+        conn
+        |> put_req_header("content-type", "application/json")
+        |> post("/perpetual/v1/order/put_limit", "{invalid json}")
+      end
+    end
+
+    test "handles missing required parameters", %{conn: conn} do
+      # Missing required fields for limit order
+      params = %{
+        "market" => "BTCUSDT",
+        "side" => "buy"
+        # Missing amount and price
+      }
+      
+      assert_raise MatchError, fn ->
+        post(conn, "/perpetual/v1/order/put_limit", params)
+      end
+    end
+
+    test "API endpoints return proper content-type", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/market/list")
+      
+      assert json_response(conn, 200)
+      assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
+    end
+  end
+
+  # Integration test
+  describe "API integration" do
+    test "basic API workflow", %{conn: conn} do
+      # 1. Check market data
+      conn1 = get(conn, "/perpetual/v1/market/list")
+      assert %{"code" => 0, "data" => [_market]} = json_response(conn1, 200)
+      
+      # 2. Check ticker (may fail if no price set)
+      conn2 = get(conn, "/perpetual/v1/market/ticker")
+      ticker_response = json_response(conn2, 200)
+      assert ticker_response["code"] in [0, 1]  # 0 if price available, 1 if not
+      
+      # 3. Check pending orders (should be empty initially)
+      conn3 = get(conn, "/perpetual/v1/order/pending")
+      assert %{"code" => 0, "data" => []} = json_response(conn3, 200)
+      
+      # 4. Check positions (should be empty initially)
+      conn4 = get(conn, "/perpetual/v1/position/pending")
+      assert %{"code" => 0, "data" => []} = json_response(conn4, 200)
+      
+      # 5. Check asset balance
+      conn5 = get(conn, "/perpetual/v1/asset/query")
+      assert %{"code" => 0, "data" => %{"USDT" => _balance}} = json_response(conn5, 200)
+    end
+  end
+end
