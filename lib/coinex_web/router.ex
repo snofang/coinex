@@ -34,6 +34,7 @@ defmodule CoinexWeb.Router do
     post "/order/put_market", FuturesController, :put_market_order
     post "/order/cancel", FuturesController, :cancel_order
     get "/order/pending", FuturesController, :pending_orders
+    get "/order/finished", FuturesController, :finished_orders
 
     # Position endpoints
     get "/position/pending", FuturesController, :pending_positions

@@ -302,6 +302,191 @@ defmodule CoinexWeb.FuturesControllerTest do
     end
   end
 
+  describe "GET /perpetual/v1/order/finished" do
+    test "returns empty finished orders list when no finished orders exist", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished")
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => %{
+          "records" => [],
+          "offset" => 0,
+          "limit" => 20
+        }
+      } = json_response(conn, 200)
+    end
+
+    test "returns correct structure for finished orders response", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished")
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => data
+      } = json_response(conn, 200)
+      
+      # Verify response structure matches CoinEx API
+      assert Map.has_key?(data, "records")
+      assert Map.has_key?(data, "offset")
+      assert Map.has_key?(data, "limit")
+      assert is_list(data["records"])
+      assert is_integer(data["offset"])
+      assert is_integer(data["limit"])
+    end
+
+    test "supports pagination parameters", %{conn: conn} do
+      # Test with custom pagination
+      conn = get(conn, "/perpetual/v1/order/finished", %{
+        "offset" => "10",
+        "limit" => "5"
+      })
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => %{
+          "records" => _records,
+          "offset" => 10,
+          "limit" => 5
+        }
+      } = json_response(conn, 200)
+    end
+
+    test "enforces maximum limit of 100 records", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished", %{
+        "limit" => "200"
+      })
+      
+      assert %{
+        "data" => %{
+          "limit" => 100
+        }
+      } = json_response(conn, 200)
+    end
+
+    test "supports market filtering", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished", %{
+        "market" => "BTCUSDT"
+      })
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => %{"records" => records}
+      } = json_response(conn, 200)
+      
+      # All returned orders should be for the specified market
+      Enum.each(records, fn order ->
+        assert order["market"] == "BTCUSDT"
+      end)
+    end
+
+    test "supports side filtering", %{conn: conn} do
+      # Test filtering for buy orders (side = 2)
+      conn = get(conn, "/perpetual/v1/order/finished", %{
+        "side" => "2"
+      })
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => %{"records" => records}
+      } = json_response(conn, 200)
+      
+      # All returned orders should be buy orders
+      Enum.each(records, fn order ->
+        assert order["side"] == 2
+      end)
+    end
+
+    test "supports side filtering with all orders (side = 0)", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished", %{
+        "side" => "0"
+      })
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => %{"records" => _records}
+      } = json_response(conn, 200)
+      
+      # Should return all finished orders regardless of side
+    end
+
+    test "supports time filtering with start_time and end_time", %{conn: conn} do
+      # Use Unix timestamps for filtering
+      start_time = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.to_unix()
+      end_time = DateTime.utc_now() |> DateTime.to_unix()
+      
+      conn = get(conn, "/perpetual/v1/order/finished", %{
+        "start_time" => to_string(start_time),
+        "end_time" => to_string(end_time)
+      })
+      
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => %{"records" => _records}
+      } = json_response(conn, 200)
+    end
+
+    test "finished orders contain all required fields", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished")
+      
+      assert %{
+        "code" => 0,
+        "data" => %{"records" => records}
+      } = json_response(conn, 200)
+      
+      # Check structure of each returned order
+      Enum.each(records, fn order ->
+        # All required fields from CoinEx API specification
+        assert is_integer(order["order_id"])
+        assert is_binary(order["market"])
+        assert order["side"] in [1, 2]  # 1 = sell, 2 = buy
+        assert order["type"] in ["limit", "market"]
+        assert is_binary(order["amount"])
+        assert is_binary(order["filled_amount"])
+        assert is_integer(order["created_at"])
+        assert is_integer(order["updated_at"])
+        
+        # Price can be nil for market orders
+        assert is_binary(order["price"]) or is_nil(order["price"])
+        assert is_binary(order["avg_price"]) or is_nil(order["avg_price"])
+        
+        # Status should only be finished statuses
+        assert order["status"] in ["filled", "cancelled"]
+        
+        # client_id can be nil or string
+        assert is_binary(order["client_id"]) or is_nil(order["client_id"])
+      end)
+    end
+
+    test "finished orders are sorted by updated_at descending", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished")
+      
+      assert %{
+        "data" => %{"records" => records}
+      } = json_response(conn, 200)
+      
+      # Check that orders are sorted by updated_at in descending order
+      timestamps = Enum.map(records, & &1["updated_at"])
+      assert timestamps == Enum.sort(timestamps, :desc)
+    end
+
+    test "defaults to offset=0 and limit=20 when not specified", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished")
+      
+      assert %{
+        "data" => %{
+          "offset" => 0,
+          "limit" => 20
+        }
+      } = json_response(conn, 200)
+    end
+  end
+
   describe "GET /perpetual/v1/position/pending" do
     test "returns empty list when no positions", %{conn: conn} do
       conn = get(conn, "/perpetual/v1/position/pending")

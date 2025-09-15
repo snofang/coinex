@@ -128,6 +128,59 @@ defmodule CoinexWeb.FuturesController do
     })
   end
 
+  # GET /perpetual/v1/order/finished
+  def finished_orders(conn, params) do
+    # Get all orders and filter for finished ones
+    orders = FuturesExchange.get_orders()
+    finished_orders = Enum.filter(orders, fn order -> 
+      order.status in ["filled", "cancelled"]
+    end)
+    
+    # Apply market filter if provided
+    filtered_orders = case Map.get(params, "market") do
+      nil -> finished_orders
+      market -> Enum.filter(finished_orders, & &1.market == market)
+    end
+    
+    # Apply side filter if provided (0: All, 1: Sell, 2: Buy)
+    side_filtered_orders = case Map.get(params, "side") do
+      nil -> filtered_orders
+      "0" -> filtered_orders
+      side_str -> 
+        side = String.to_integer(side_str)
+        Enum.filter(filtered_orders, & &1.side == side)
+    end
+    
+    # Apply time filtering if provided
+    time_filtered_orders = apply_time_filters(side_filtered_orders, params)
+    
+    # Apply pagination
+    offset = Map.get(params, "offset", "0") |> String.to_integer()
+    limit = Map.get(params, "limit", "20") |> String.to_integer()
+    
+    # Limit maximum records per request
+    limit = min(limit, 100)
+    
+    # Sort by updated_at descending (newest first)
+    sorted_orders = Enum.sort_by(time_filtered_orders, & &1.updated_at, {:desc, DateTime})
+    
+    # Apply pagination
+    paginated_orders = 
+      sorted_orders
+      |> Enum.drop(offset)
+      |> Enum.take(limit)
+    
+    json(conn, %{
+      code: 0,
+      message: "Ok",
+      data: %{
+        records: Enum.map(paginated_orders, &serialize_order/1),
+        offset: offset,
+        limit: limit
+      }
+    })
+  end
+
   # GET /perpetual/v1/position/pending
   def pending_positions(conn, _params) do
     positions = FuturesExchange.get_positions()
@@ -186,6 +239,28 @@ defmodule CoinexWeb.FuturesController do
   end
 
   # Helper functions for serialization
+
+  defp apply_time_filters(orders, params) do
+    orders
+    |> apply_start_time_filter(Map.get(params, "start_time"))
+    |> apply_end_time_filter(Map.get(params, "end_time"))
+  end
+
+  defp apply_start_time_filter(orders, nil), do: orders
+  defp apply_start_time_filter(orders, start_time_str) do
+    start_time = String.to_integer(start_time_str) |> DateTime.from_unix!()
+    Enum.filter(orders, fn order ->
+      DateTime.compare(order.updated_at, start_time) != :lt
+    end)
+  end
+
+  defp apply_end_time_filter(orders, nil), do: orders
+  defp apply_end_time_filter(orders, end_time_str) do
+    end_time = String.to_integer(end_time_str) |> DateTime.from_unix!()
+    Enum.filter(orders, fn order ->
+      DateTime.compare(order.updated_at, end_time) != :gt
+    end)
+  end
 
   defp serialize_order(order) do
     %{
