@@ -144,9 +144,10 @@ defmodule Coinex.FeeCalculationTest do
       # Order value: 0.01 * 51000 = 510 USDT
       # Taker fee: 510 * 0.0005 = 0.255 USDT
       expected_fee = Decimal.new("0.255")
-      # Expected available: 9500 (start) + 0 (unfreeze) - 0.255 (fee) + 500 (released margin)
-      expected_available = Decimal.new("9999.745")  # 9500 + 0 - 0.255 + 500
-      
+      # Realized profit: (51000 - 50000) * 0.01 = 10 USDT
+      # Expected available: 9500 (start) + 0 (unfreeze) - 0.255 (fee) + 500 (released margin) + 10 (realized profit)
+      expected_available = Decimal.new("10009.745")  # 9500 + 0 - 0.255 + 500 + 10
+
       assert Decimal.equal?(new_balance.total_fees_paid, expected_fee)
       assert Decimal.equal?(new_balance.available, expected_available)
       assert Decimal.equal?(new_balance.margin_used, Decimal.new("0"))  # Position closed
