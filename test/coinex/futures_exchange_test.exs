@@ -6,11 +6,17 @@ defmodule Coinex.FuturesExchangeTest do
   setup do
     # Stop the GenServer if running and restart with clean state
     case Process.whereis(FuturesExchange) do
-      nil -> 
-        {:ok, _pid} = FuturesExchange.start_link([])
-      pid -> 
+      nil ->
+        case FuturesExchange.start_link([]) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+        end
+      pid ->
         GenServer.stop(pid)
-        {:ok, _pid} = FuturesExchange.start_link([])
+        case FuturesExchange.start_link([]) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+        end
     end
     :ok
   end
@@ -209,8 +215,9 @@ defmodule Coinex.FuturesExchangeTest do
   describe "order listing" do
     test "returns all orders" do
       {:ok, _order1} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.1", "50000.0")
-      {:ok, _order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.2", "60000.0")
-      
+      # Use smaller sell amount to ensure we have sufficient balance for the new short position
+      {:ok, _order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.05", "60000.0")
+
       orders = FuturesExchange.get_orders()
       assert length(orders) == 2
     end

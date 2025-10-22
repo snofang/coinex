@@ -13,9 +13,7 @@ defmodule Coinex.FuturesExchange do
   @price_update_interval 60_000  # 1 minute
   @minimum_order_amount Decimal.new("0.0001")  # Minimum order amount in BTC
 
-  # CoinEx Real Trading Fee Rates (VIP 0 level)
-  @maker_fee_rate Decimal.new("0.0003")    # 0.03% for limit orders (maker)
-  @taker_fee_rate Decimal.new("0.0005")    # 0.05% for market orders (taker)
+  # CoinEx Real Trading Fee Rates are now defined in ActionCalculator module
 
   defmodule State do
     defstruct [
@@ -395,154 +393,41 @@ defmodule Coinex.FuturesExchange do
   defp validate_price(_, _), do: {:error, "Invalid price"}
 
   defp validate_balance(state, side, amount, price, type) do
-    required_balance = calculate_required_balance(side, amount, price, type, state.current_price)
-    
-    if Decimal.compare(state.balance.available, required_balance) != :lt do
-      :ok
+    # Create a temporary order to calculate position-aware frozen amount
+    {:ok, decimal_amount} = safe_decimal_new(amount)
+    decimal_price = case type do
+      "limit" when not is_nil(price) ->
+        {:ok, dp} = safe_decimal_new(price)
+        dp
+      "market" when not is_nil(state.current_price) ->
+        state.current_price
+      _ ->
+        nil
+    end
+
+    # If we don't have a price yet, we can't validate properly
+    if is_nil(decimal_price) do
+      {:error, "Price not available"}
     else
-      {:error, "Insufficient balance"}
-    end
-  end
+      temp_order = %Order{
+        market: @market,
+        side: side,
+        type: type,
+        amount: decimal_amount,
+        price: decimal_price
+      }
 
-  defp calculate_required_balance("buy", amount, price, "limit", _current_price) do
-    {:ok, decimal_amount} = safe_decimal_new(amount)
-    {:ok, decimal_price} = safe_decimal_new(price)
-    Decimal.mult(decimal_amount, decimal_price)
-  end
-  defp calculate_required_balance("buy", amount, nil, "market", current_price) when not is_nil(current_price) do
-    # For market buy orders, estimate using current price
-    {:ok, decimal_amount} = safe_decimal_new(amount)
-    Decimal.mult(decimal_amount, current_price)
-  end
-  defp calculate_required_balance("buy", _amount, nil, "market", nil) do
-    # For market buy orders without current price, return zero (will be validated later)
-    Decimal.new("0")
-  end
-  defp calculate_required_balance("sell", _amount, _price, _type, _current_price) do
-    # For sell orders, we need to check position or available assets
-    # For simplicity, assume no balance required for sell orders in futures
-    Decimal.new("0")
-  end
-  defp calculate_required_balance(_, _, _, _, _), do: Decimal.new("0")
+      # Use ActionCalculator's position-aware frozen calculation
+      required_balance = ActionCalculator.calculate_frozen_for_order(temp_order, state.positions)
 
-  defp freeze_funds_for_order(balance, order, current_price, positions, orders) do
-    # When placing a new order, exclude it from the effective position calculation
-    frozen_amount = calculate_order_frozen_amount(order, current_price, positions, orders, order.id)
-    
-    new_balance = %{balance |
-      available: Decimal.sub(balance.available, frozen_amount),
-      frozen: Decimal.add(balance.frozen, frozen_amount)
-    }
-    
-    {frozen_amount, new_balance}
-  end
-
-  # Get current net position for a market, considering pending orders (excluding current order)
-  defp get_effective_net_position(positions, orders, market, exclude_order_id \\ nil) do
-    # Start with actual position
-    {position_side, position_amount} = case Map.get(positions, market) do
-      nil -> {:none, Decimal.new("0")}
-      %Position{side: "long", amount: amount} -> {:long, amount}
-      %Position{side: "short", amount: amount} -> {:short, amount}
-    end
-    
-    # Calculate pending order impact, excluding the order currently being placed
-    pending_orders = orders
-    |> Map.values()
-    |> Enum.filter(&(&1.status == "pending" && &1.market == market && &1.id != exclude_order_id))
-    
-    # Sum up pending buy and sell amounts
-    {pending_buys, pending_sells} = Enum.reduce(pending_orders, {Decimal.new("0"), Decimal.new("0")}, fn order, {buys, sells} ->
-      case order.side do
-        "buy" -> {Decimal.add(buys, order.amount), sells}
-        "sell" -> {buys, Decimal.add(sells, order.amount)}
+      if Decimal.compare(state.balance.available, required_balance) != :lt do
+        :ok
+      else
+        {:error, "Insufficient balance"}
       end
-    end)
-    
-    # Calculate effective position after pending orders
-    calculate_effective_position(position_side, position_amount, pending_buys, pending_sells)
-  end
-
-  defp calculate_effective_position(position_side, position_amount, pending_buys, pending_sells) do
-    net_pending = Decimal.sub(pending_buys, pending_sells)
-    
-    case position_side do
-      :none ->
-        cond do
-          Decimal.positive?(net_pending) -> {:long, net_pending}
-          Decimal.negative?(net_pending) -> {:short, Decimal.abs(net_pending)}
-          true -> {:none, Decimal.new("0")}
-        end
-      
-      :long ->
-        new_amount = Decimal.add(position_amount, net_pending)
-        cond do
-          Decimal.positive?(new_amount) -> {:long, new_amount}
-          Decimal.negative?(new_amount) -> {:short, Decimal.abs(new_amount)}
-          true -> {:none, Decimal.new("0")}
-        end
-      
-      :short ->
-        new_amount = Decimal.sub(net_pending, position_amount)  # net_pending - short_amount
-        cond do
-          Decimal.positive?(new_amount) -> {:long, new_amount}
-          Decimal.negative?(new_amount) -> {:short, Decimal.abs(new_amount)}
-          true -> {:none, Decimal.new("0")}
-        end
     end
   end
 
-  # Position-aware frozen amount calculation
-  defp calculate_order_frozen_amount(order, current_price, positions, orders, exclude_order_id \\ nil) do
-    price = case order.type do
-      "limit" -> order.price
-      "market" when not is_nil(current_price) -> current_price
-      "market" when is_nil(current_price) -> nil
-    end
-
-    if is_nil(price) do
-      Decimal.new("0")
-    else
-      {position_side, position_amount} = get_effective_net_position(positions, orders, order.market, exclude_order_id)
-      calculate_margin_for_new_exposure(order.side, order.amount, position_side, position_amount, price)
-    end
-  end
-
-  # Calculate margin needed for new position exposure
-  defp calculate_margin_for_new_exposure(order_side, order_amount, position_side, position_amount, price) do
-    case {position_side, order_side} do
-      # No existing position - need full margin
-      {:none, _} -> 
-        Decimal.mult(order_amount, price)
-      
-      # Same side - increasing position, need full margin
-      {:long, "buy"} -> 
-        Decimal.mult(order_amount, price)
-      {:short, "sell"} -> 
-        Decimal.mult(order_amount, price)
-      
-      # Opposite side - reducing position or reversing
-      {:long, "sell"} ->
-        if Decimal.compare(order_amount, position_amount) == :gt do
-          # Order exceeds position - margin needed for excess (new short)
-          excess = Decimal.sub(order_amount, position_amount)
-          Decimal.mult(excess, price)
-        else
-          # Order within position - no additional margin needed
-          Decimal.new("0")
-        end
-      
-      {:short, "buy"} ->
-        if Decimal.compare(order_amount, position_amount) == :gt do
-          # Order exceeds position - margin needed for excess (new long)
-          excess = Decimal.sub(order_amount, position_amount)
-          Decimal.mult(excess, price)
-        else
-          # Order within position - no additional margin needed
-          Decimal.new("0")
-        end
-    end
-  end
 
   defp process_order(state, %Order{type: "limit"} = order) do
     # For limit orders, check if they can be filled at current price
@@ -597,92 +482,6 @@ defmodule Coinex.FuturesExchange do
     {new_state, filled_order}
   end
 
-  defp update_position_after_complete_fill(positions, order, fill_price) do
-    position_key = order.market
-    existing_position = Map.get(positions, position_key)
-    
-    case existing_position do
-      nil ->
-        # Create new position
-        new_position = %Position{
-          market: order.market,
-          side: if(order.side == "buy", do: "long", else: "short"),
-          amount: order.amount,
-          entry_price: fill_price,
-          unrealized_pnl: Decimal.new("0"),
-          margin_used: calculate_margin_used(order.amount, fill_price),
-          leverage: Decimal.new("1"),  # Default leverage
-          created_at: DateTime.utc_now(),
-          updated_at: DateTime.utc_now()
-        }
-        Map.put(positions, position_key, new_position)
-      
-      position ->
-        # Update existing position
-        updated_position = merge_position_with_order(position, order, fill_price)
-        if Decimal.equal?(updated_position.amount, Decimal.new("0")) do
-          Map.delete(positions, position_key)
-        else
-          Map.put(positions, position_key, updated_position)
-        end
-    end
-  end
-
-  defp calculate_margin_used(amount, price) do
-    # Simple calculation: amount * price (no leverage applied)
-    Decimal.mult(amount, price)
-  end
-
-  defp merge_position_with_order(position, order, fill_price) do
-    order_side = if(order.side == "buy", do: "long", else: "short")
-    
-    if position.side == order_side do
-      # Same side - increase position
-      new_amount = Decimal.add(position.amount, order.amount)
-      total_value = Decimal.add(
-        Decimal.mult(position.amount, position.entry_price),
-        Decimal.mult(order.amount, fill_price)
-      )
-      new_entry_price = Decimal.div(total_value, new_amount)
-      
-      %{position |
-        amount: new_amount,
-        entry_price: new_entry_price,
-        margin_used: calculate_margin_used(new_amount, new_entry_price),
-        updated_at: DateTime.utc_now()
-      }
-    else
-      # Opposite side - reduce or reverse position
-      if Decimal.compare(order.amount, position.amount) == :gt do
-        # Reverse position
-        new_amount = Decimal.sub(order.amount, position.amount)
-        %{position |
-          side: order_side,
-          amount: new_amount,
-          entry_price: fill_price,
-          margin_used: calculate_margin_used(new_amount, fill_price),
-          updated_at: DateTime.utc_now()
-        }
-      else
-        # Reduce position
-        new_amount = Decimal.sub(position.amount, order.amount)
-        %{position |
-          amount: new_amount,
-          margin_used: calculate_margin_used(new_amount, position.entry_price),
-          updated_at: DateTime.utc_now()
-        }
-      end
-    end
-  end
-
-  defp update_balance_after_complete_fill(balance, order, _fill_price, _positions, _orders) do
-    # Use stored frozen amount instead of recalculating
-    frozen_amount = order.frozen_amount
-    
-    %{balance |
-      frozen: Decimal.sub(balance.frozen, frozen_amount)
-    }
-  end
 
   defp update_positions_pnl(state) when is_nil(state.current_price), do: state
   defp update_positions_pnl(state) do
@@ -696,22 +495,6 @@ defmodule Coinex.FuturesExchange do
     %{state | positions: new_positions, balance: new_balance}
   end
 
-  defp calculate_position_pnl(position, current_price) do
-    pnl = case position.side do
-      "long" ->
-        Decimal.mult(
-          position.amount,
-          Decimal.sub(current_price, position.entry_price)
-        )
-      "short" ->
-        Decimal.mult(
-          position.amount,
-          Decimal.sub(position.entry_price, current_price)
-        )
-    end
-    
-    %{position | unrealized_pnl: pnl, updated_at: DateTime.utc_now()}
-  end
 
   defp check_and_fill_pending_orders(state) do
     # Find all pending limit orders that can now be filled
