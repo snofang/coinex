@@ -431,9 +431,10 @@ defmodule Coinex.FuturesExchange do
 
   defp process_order(state, %Order{type: "limit"} = order) do
     # For limit orders, check if they can be filled at current price
-    # Simple model: orders are filled completely when price is touched
+    # If immediately fillable, fill at current market price (like market order)
+    # Otherwise, order remains pending until price reaches limit
     if can_fill_limit_order?(order, state.current_price) do
-      fill_order_completely(state, order, order.price)  # Fill at order price, not current price
+      fill_order_completely(state, order, state.current_price)  # Fill at current market price
     else
       # Order remains pending
       {state, order}
