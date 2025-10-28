@@ -117,14 +117,43 @@ defmodule CoinexWeb.FuturesController do
   end
 
   # GET /perpetual/v1/order/pending
-  def pending_orders(conn, _params) do
+  def pending_orders(conn, params) do
     orders = FuturesExchange.get_orders()
     pending_orders = Enum.filter(orders, & &1.status == "pending")
-    
+
+    # Apply market filter if provided
+    filtered_orders = case Map.get(params, "market") do
+      nil -> pending_orders
+      market when is_binary(market) ->
+        Enum.filter(pending_orders, & &1.market == market)
+      _ -> pending_orders
+    end
+
+    # Apply pagination with safe integer parsing
+    offset = safe_parse_integer(Map.get(params, "offset", "0"), 0)
+    limit = safe_parse_integer(Map.get(params, "limit", "20"), 20)
+
+    # Ensure positive values and limit maximum records per request
+    offset = max(offset, 0)
+    limit = limit |> max(1) |> min(100)
+
+    # Sort by updated_at descending (newest first)
+    sorted_orders = Enum.sort_by(filtered_orders, & &1.updated_at, {:desc, DateTime})
+
+    # Apply pagination
+    paginated_orders =
+      sorted_orders
+      |> Enum.drop(offset)
+      |> Enum.take(limit)
+
     json(conn, %{
       code: 0,
       message: "Ok",
-      data: Enum.map(pending_orders, &serialize_order/1)
+      data: %{
+        records: Enum.map(paginated_orders, &serialize_order/1),
+        offset: offset,
+        limit: limit
+      }
     })
   end
 

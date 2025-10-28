@@ -99,6 +99,12 @@ curl http://localhost:4000/perpetual/v1/asset/query
 # Check positions
 curl http://localhost:4000/perpetual/v1/position/pending
 
+# List pending orders
+curl "http://localhost:4000/perpetual/v1/order/pending"
+
+# List pending orders with filters (limit, market, offset)
+curl "http://localhost:4000/perpetual/v1/order/pending?market=BTCUSDT&limit=5&offset=0"
+
 # List finished orders
 curl "http://localhost:4000/perpetual/v1/order/finished"
 

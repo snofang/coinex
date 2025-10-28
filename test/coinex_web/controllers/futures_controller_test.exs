@@ -265,28 +265,37 @@ defmodule CoinexWeb.FuturesControllerTest do
   describe "GET /perpetual/v1/order/pending" do
     test "returns empty list when no pending orders", %{conn: conn} do
       conn = get(conn, "/perpetual/v1/order/pending")
-      
+
       assert %{
         "code" => 0,
         "message" => "Ok",
-        "data" => []
+        "data" => %{
+          "records" => [],
+          "offset" => 0,
+          "limit" => 20
+        }
       } = json_response(conn, 200)
     end
 
     test "returns correct structure for pending orders", %{conn: conn} do
       conn = get(conn, "/perpetual/v1/order/pending")
-      
+
       assert %{
         "code" => 0,
         "message" => "Ok",
-        "data" => orders_data
+        "data" => data
       } = json_response(conn, 200)
-      
+
       # Verify structure is correct
-      assert is_list(orders_data)
-      
+      assert Map.has_key?(data, "records")
+      assert Map.has_key?(data, "offset")
+      assert Map.has_key?(data, "limit")
+      assert is_list(data["records"])
+      assert is_integer(data["offset"])
+      assert is_integer(data["limit"])
+
       # If there are orders, check their structure
-      Enum.each(orders_data, fn order ->
+      Enum.each(data["records"], fn order ->
         assert is_integer(order["order_id"])
         assert is_binary(order["market"])
         assert order["side"] in ["buy", "sell"]
@@ -299,6 +308,143 @@ defmodule CoinexWeb.FuturesControllerTest do
         # Only pending orders should be returned
         assert order["status"] == "pending"
       end)
+    end
+
+    test "defaults to offset=0 and limit=20 when not specified", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/pending")
+
+      assert %{
+        "data" => %{
+          "offset" => 0,
+          "limit" => 20
+        }
+      } = json_response(conn, 200)
+    end
+
+    test "supports limit parameter", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/pending", %{"limit" => "5"})
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "limit" => 5
+        }
+      } = json_response(conn, 200)
+    end
+
+    test "enforces maximum limit of 100 records", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/pending", %{"limit" => "200"})
+
+      assert %{
+        "data" => %{
+          "limit" => 100
+        }
+      } = json_response(conn, 200)
+    end
+
+    test "supports market filtering", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/pending", %{"market" => "BTCUSDT"})
+
+      assert %{
+        "code" => 0,
+        "message" => "Ok",
+        "data" => %{"records" => records}
+      } = json_response(conn, 200)
+
+      # All returned orders should be for the specified market
+      Enum.each(records, fn order ->
+        assert order["market"] == "BTCUSDT"
+      end)
+    end
+
+    test "pending orders are sorted by updated_at descending", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/pending")
+
+      assert %{
+        "data" => %{"records" => records}
+      } = json_response(conn, 200)
+
+      # Check that orders are sorted by updated_at in descending order
+      timestamps = Enum.map(records, & &1["updated_at"])
+      assert timestamps == Enum.sort(timestamps, :desc)
+    end
+
+    test "limit parameter returns N most recent pending orders in descending order", %{conn: conn} do
+      # Create multiple pending limit orders at different times
+      FuturesExchange.set_current_price(Decimal.new("50000.0"))
+
+      # Create 10 limit orders (they will remain pending)
+      order_ids = for i <- 1..10 do
+        # Small delay to ensure different timestamps
+        Process.sleep(5)
+        {:ok, order} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.001", "48000.0", "client_#{i}")
+        order.id
+      end
+
+      # Request limit=5 to get 5 most recent
+      conn = get(conn, "/perpetual/v1/order/pending", %{"limit" => "5"})
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "records" => records,
+          "limit" => 5
+        }
+      } = json_response(conn, 200)
+
+      # Should return exactly 5 records
+      assert length(records) == 5
+
+      # Should be sorted by updated_at descending (newest first)
+      timestamps = Enum.map(records, & &1["updated_at"])
+      assert timestamps == Enum.sort(timestamps, :desc)
+
+      # The 5 returned orders should be the last 5 created (most recent)
+      # in descending order (newest first)
+      returned_order_ids = Enum.map(records, & &1["order_id"])
+      expected_last_5_descending = Enum.take(Enum.reverse(order_ids), 5)
+      assert returned_order_ids == expected_last_5_descending
+    end
+
+    test "combines market and limit parameters", %{conn: conn} do
+      FuturesExchange.set_current_price(Decimal.new("50000.0"))
+      {:ok, _} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.001", "48000.0")
+
+      conn = get(conn, "/perpetual/v1/order/pending", %{
+        "market" => "BTCUSDT",
+        "limit" => "10"
+      })
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "records" => records,
+          "limit" => 10
+        }
+      } = json_response(conn, 200)
+
+      # All records should be for BTCUSDT market
+      Enum.each(records, fn order ->
+        assert order["market"] == "BTCUSDT"
+      end)
+    end
+
+    test "pagination with offset and limit", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/pending", %{
+        "offset" => "5",
+        "limit" => "10"
+      })
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "records" => records,
+          "offset" => 5,
+          "limit" => 10
+        }
+      } = json_response(conn, 200)
+
+      assert is_list(records)
     end
   end
 
@@ -908,7 +1054,7 @@ defmodule CoinexWeb.FuturesControllerTest do
       
       # 3. Check pending orders (should be empty initially)
       conn3 = get(conn, "/perpetual/v1/order/pending")
-      assert %{"code" => 0, "data" => []} = json_response(conn3, 200)
+      assert %{"code" => 0, "data" => %{"records" => []}} = json_response(conn3, 200)
       
       # 4. Check positions (should be empty initially)
       conn4 = get(conn, "/perpetual/v1/position/pending")
