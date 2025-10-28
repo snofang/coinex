@@ -132,34 +132,42 @@ defmodule CoinexWeb.FuturesController do
   def finished_orders(conn, params) do
     # Get all orders and filter for finished ones
     orders = FuturesExchange.get_orders()
-    finished_orders = Enum.filter(orders, fn order -> 
+    finished_orders = Enum.filter(orders, fn order ->
       order.status in ["filled", "cancelled"]
     end)
-    
+
     # Apply market filter if provided
     filtered_orders = case Map.get(params, "market") do
       nil -> finished_orders
-      market -> Enum.filter(finished_orders, & &1.market == market)
+      market when is_binary(market) ->
+        Enum.filter(finished_orders, & &1.market == market)
+      _ -> finished_orders
     end
-    
+
     # Apply side filter if provided (0: All, 1: Sell, 2: Buy)
     side_filtered_orders = case Map.get(params, "side") do
       nil -> filtered_orders
       "0" -> filtered_orders
-      side_str -> 
-        side = String.to_integer(side_str)
+      side_str when is_binary(side_str) ->
+        case Integer.parse(side_str) do
+          {side, ""} -> Enum.filter(filtered_orders, & &1.side == side)
+          _ -> filtered_orders
+        end
+      side when is_integer(side) ->
         Enum.filter(filtered_orders, & &1.side == side)
+      _ -> filtered_orders
     end
-    
+
     # Apply time filtering if provided
     time_filtered_orders = apply_time_filters(side_filtered_orders, params)
-    
-    # Apply pagination
-    offset = Map.get(params, "offset", "0") |> String.to_integer()
-    limit = Map.get(params, "limit", "20") |> String.to_integer()
-    
-    # Limit maximum records per request
-    limit = min(limit, 100)
+
+    # Apply pagination with safe integer parsing
+    offset = safe_parse_integer(Map.get(params, "offset", "0"), 0)
+    limit = safe_parse_integer(Map.get(params, "limit", "20"), 20)
+
+    # Ensure positive values and limit maximum records per request
+    offset = max(offset, 0)
+    limit = limit |> max(1) |> min(100)
     
     # Sort by updated_at descending (newest first)
     sorted_orders = Enum.sort_by(time_filtered_orders, & &1.updated_at, {:desc, DateTime})
@@ -239,6 +247,16 @@ defmodule CoinexWeb.FuturesController do
   end
 
   # Helper functions for serialization
+
+  # Safely parse integer from string or integer, with default fallback
+  defp safe_parse_integer(value, _default) when is_integer(value), do: value
+  defp safe_parse_integer(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> default
+    end
+  end
+  defp safe_parse_integer(_, default), do: default
 
   defp apply_time_filters(orders, params) do
     orders

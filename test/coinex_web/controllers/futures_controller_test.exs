@@ -485,6 +485,140 @@ defmodule CoinexWeb.FuturesControllerTest do
         }
       } = json_response(conn, 200)
     end
+
+    test "supports limit parameter with value 1", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished", %{"limit" => "1"})
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "limit" => 1
+        }
+      } = json_response(conn, 200)
+    end
+
+    test "supports limit parameter with value 50", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished", %{"limit" => "50"})
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "limit" => 50
+        }
+      } = json_response(conn, 200)
+    end
+
+    test "accepts limit parameter as integer", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished", %{"limit" => 25})
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "limit" => 25
+        }
+      } = json_response(conn, 200)
+    end
+
+    test "combines market and limit parameters", %{conn: conn} do
+      # Create some test orders first
+      FuturesExchange.set_current_price(Decimal.new("50000.0"))
+      {:ok, _} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.01")
+
+      conn = get(conn, "/perpetual/v1/order/finished", %{
+        "market" => "BTCUSDT",
+        "limit" => "10"
+      })
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "records" => records,
+          "limit" => 10
+        }
+      } = json_response(conn, 200)
+
+      # All records should be for BTCUSDT market
+      Enum.each(records, fn order ->
+        assert order["market"] == "BTCUSDT"
+      end)
+    end
+
+    test "market parameter filters correctly when combined with offset", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished", %{
+        "market" => "BTCUSDT",
+        "offset" => "0",
+        "limit" => "5"
+      })
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "records" => records,
+          "offset" => 0,
+          "limit" => 5
+        }
+      } = json_response(conn, 200)
+
+      # Verify all are BTCUSDT
+      Enum.each(records, fn order ->
+        assert order["market"] == "BTCUSDT"
+      end)
+    end
+
+    test "respects limit when more orders exist than requested", %{conn: conn} do
+      # Create multiple orders
+      FuturesExchange.set_current_price(Decimal.new("50000.0"))
+
+      for _ <- 1..5 do
+        FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.01", "49000.0")
+      end
+
+      conn = get(conn, "/perpetual/v1/order/finished", %{"limit" => "2"})
+
+      assert %{
+        "data" => %{
+          "records" => records,
+          "limit" => 2
+        }
+      } = json_response(conn, 200)
+
+      # Should return at most 2 records (may be fewer if no finished orders)
+      assert length(records) <= 2
+    end
+
+    test "market parameter works with empty result", %{conn: conn} do
+      # Query for a market that has no orders
+      conn = get(conn, "/perpetual/v1/order/finished", %{
+        "market" => "BTCUSDT"
+      })
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "records" => _records
+        }
+      } = json_response(conn, 200)
+    end
+
+    test "limit and market work together with pagination", %{conn: conn} do
+      conn = get(conn, "/perpetual/v1/order/finished", %{
+        "market" => "BTCUSDT",
+        "limit" => "10",
+        "offset" => "5"
+      })
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "records" => records,
+          "offset" => 5,
+          "limit" => 10
+        }
+      } = json_response(conn, 200)
+
+      # Verify structure
+      assert is_list(records)
+    end
   end
 
   describe "GET /perpetual/v1/position/pending" do

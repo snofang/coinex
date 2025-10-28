@@ -31,9 +31,10 @@ A Phoenix application implementing a simulated CoinEx futures exchange API using
 
 ### Order Management
 - `POST /perpetual/v1/order/put_limit` - Place limit order
-- `POST /perpetual/v1/order/put_market` - Place market order  
+- `POST /perpetual/v1/order/put_market` - Place market order
 - `POST /perpetual/v1/order/cancel` - Cancel order
 - `GET /perpetual/v1/order/pending` - List pending orders
+- `GET /perpetual/v1/order/finished` - List finished orders (filled/cancelled)
 
 ### Account Management
 - `GET /perpetual/v1/position/pending` - List open positions
@@ -95,8 +96,14 @@ curl -X POST http://localhost:4000/perpetual/v1/order/put_market \
 # Check balance
 curl http://localhost:4000/perpetual/v1/asset/query
 
-# Check positions  
+# Check positions
 curl http://localhost:4000/perpetual/v1/position/pending
+
+# List finished orders
+curl "http://localhost:4000/perpetual/v1/order/finished"
+
+# List finished orders with filters
+curl "http://localhost:4000/perpetual/v1/order/finished?market=BTCUSDT&limit=10&offset=0"
 ```
 
 ### Programmatic Usage
