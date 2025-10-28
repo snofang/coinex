@@ -137,8 +137,8 @@ defmodule CoinexWeb.FuturesController do
     offset = max(offset, 0)
     limit = limit |> max(1) |> min(100)
 
-    # Sort by updated_at descending (newest first)
-    sorted_orders = Enum.sort_by(filtered_orders, & &1.updated_at, {:desc, DateTime})
+    # Sort by created_at descending (newest first)
+    sorted_orders = Enum.sort_by(filtered_orders, & &1.created_at, {:desc, DateTime})
 
     # Apply pagination
     paginated_orders =
@@ -198,8 +198,8 @@ defmodule CoinexWeb.FuturesController do
     offset = max(offset, 0)
     limit = limit |> max(1) |> min(100)
     
-    # Sort by updated_at descending (newest first)
-    sorted_orders = Enum.sort_by(time_filtered_orders, & &1.updated_at, {:desc, DateTime})
+    # Sort by created_at descending (newest first)
+    sorted_orders = Enum.sort_by(time_filtered_orders, & &1.created_at, {:desc, DateTime})
     
     # Apply pagination
     paginated_orders = 

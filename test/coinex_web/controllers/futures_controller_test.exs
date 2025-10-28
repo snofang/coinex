@@ -357,15 +357,15 @@ defmodule CoinexWeb.FuturesControllerTest do
       end)
     end
 
-    test "pending orders are sorted by updated_at descending", %{conn: conn} do
+    test "pending orders are sorted by created_at descending", %{conn: conn} do
       conn = get(conn, "/perpetual/v1/order/pending")
 
       assert %{
         "data" => %{"records" => records}
       } = json_response(conn, 200)
 
-      # Check that orders are sorted by updated_at in descending order
-      timestamps = Enum.map(records, & &1["updated_at"])
+      # Check that orders are sorted by created_at in descending order
+      timestamps = Enum.map(records, & &1["created_at"])
       assert timestamps == Enum.sort(timestamps, :desc)
     end
 
@@ -395,8 +395,8 @@ defmodule CoinexWeb.FuturesControllerTest do
       # Should return exactly 5 records
       assert length(records) == 5
 
-      # Should be sorted by updated_at descending (newest first)
-      timestamps = Enum.map(records, & &1["updated_at"])
+      # Should be sorted by created_at descending (newest first)
+      timestamps = Enum.map(records, & &1["created_at"])
       assert timestamps == Enum.sort(timestamps, :desc)
 
       # The 5 returned orders should be the last 5 created (most recent)
@@ -609,15 +609,15 @@ defmodule CoinexWeb.FuturesControllerTest do
       end)
     end
 
-    test "finished orders are sorted by updated_at descending", %{conn: conn} do
+    test "finished orders are sorted by created_at descending", %{conn: conn} do
       conn = get(conn, "/perpetual/v1/order/finished")
-      
+
       assert %{
         "data" => %{"records" => records}
       } = json_response(conn, 200)
-      
-      # Check that orders are sorted by updated_at in descending order
-      timestamps = Enum.map(records, & &1["updated_at"])
+
+      # Check that orders are sorted by created_at in descending order
+      timestamps = Enum.map(records, & &1["created_at"])
       assert timestamps == Enum.sort(timestamps, :desc)
     end
 
@@ -792,8 +792,8 @@ defmodule CoinexWeb.FuturesControllerTest do
       # Should return exactly 5 records
       assert length(records) == 5
 
-      # Should be sorted by updated_at descending (newest first)
-      timestamps = Enum.map(records, & &1["updated_at"])
+      # Should be sorted by created_at descending (newest first)
+      timestamps = Enum.map(records, & &1["created_at"])
       assert timestamps == Enum.sort(timestamps, :desc)
 
       # The 5 returned orders should be the last 5 created (most recent)
