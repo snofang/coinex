@@ -619,6 +619,43 @@ defmodule CoinexWeb.FuturesControllerTest do
       # Verify structure
       assert is_list(records)
     end
+
+    test "limit parameter returns N most recent finished orders in descending order", %{conn: conn} do
+      # Create multiple orders at different times to have finished orders
+      FuturesExchange.set_current_price(Decimal.new("50000.0"))
+
+      # Create 10 market orders (they will be filled immediately)
+      order_ids = for i <- 1..10 do
+        # Small delay to ensure different timestamps
+        Process.sleep(5)
+        {:ok, order} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.001", "client_#{i}")
+        order.id
+      end
+
+      # Request limit=5 to get 5 most recent
+      conn = get(conn, "/perpetual/v1/order/finished", %{"limit" => "5"})
+
+      assert %{
+        "code" => 0,
+        "data" => %{
+          "records" => records,
+          "limit" => 5
+        }
+      } = json_response(conn, 200)
+
+      # Should return exactly 5 records
+      assert length(records) == 5
+
+      # Should be sorted by updated_at descending (newest first)
+      timestamps = Enum.map(records, & &1["updated_at"])
+      assert timestamps == Enum.sort(timestamps, :desc)
+
+      # The 5 returned orders should be the last 5 created (most recent)
+      # in descending order (newest first)
+      returned_order_ids = Enum.map(records, & &1["order_id"])
+      expected_last_5_descending = Enum.take(Enum.reverse(order_ids), 5)
+      assert returned_order_ids == expected_last_5_descending
+    end
   end
 
   describe "GET /perpetual/v1/position/pending" do
