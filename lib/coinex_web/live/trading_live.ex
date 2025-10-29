@@ -10,7 +10,7 @@ defmodule CoinexWeb.TradingLive do
       Process.send_after(self(), :update_data, 2000)
     end
 
-    socket = 
+    socket =
       socket
       |> assign(:current_price, nil)
       |> assign(:balance, nil)
@@ -36,7 +36,7 @@ defmodule CoinexWeb.TradingLive do
   def handle_info(:update_data, socket) do
     # Schedule next update
     Process.send_after(self(), :update_data, 2000)
-    
+
     socket = update_all_data(socket)
     {:noreply, socket}
   end
@@ -50,24 +50,27 @@ defmodule CoinexWeb.TradingLive do
       "price" => price
     } = order_params
 
-    result = case type do
-      "market" ->
-        FuturesExchange.submit_market_order("BTCUSDT", side, amount, "ui_order")
-      "limit" ->
-        FuturesExchange.submit_limit_order("BTCUSDT", side, amount, price, "ui_order")
-    end
+    result =
+      case type do
+        "market" ->
+          FuturesExchange.submit_market_order("BTCUSDT", side, amount, "ui_order")
 
-    socket = case result do
-      {:ok, _order} ->
-        socket
-        |> put_flash(:info, "Order placed successfully!")
-        |> assign(:order_amount, "")
-        |> assign(:order_price, "")
-        |> update_all_data()
-      
-      {:error, reason} ->
-        put_flash(socket, :error, "Order failed: #{reason}")
-    end
+        "limit" ->
+          FuturesExchange.submit_limit_order("BTCUSDT", side, amount, price, "ui_order")
+      end
+
+    socket =
+      case result do
+        {:ok, _order} ->
+          socket
+          |> put_flash(:info, "Order placed successfully!")
+          |> assign(:order_amount, "")
+          |> assign(:order_price, "")
+          |> update_all_data()
+
+        {:error, reason} ->
+          put_flash(socket, :error, "Order failed: #{reason}")
+      end
 
     {:noreply, socket}
   end
@@ -76,12 +79,13 @@ defmodule CoinexWeb.TradingLive do
   def handle_event("cancel_order", %{"order_id" => order_id}, socket) do
     case FuturesExchange.cancel_order(String.to_integer(order_id)) do
       {:ok, _cancelled_order} ->
-        socket = 
+        socket =
           socket
           |> put_flash(:info, "Order cancelled successfully!")
           |> update_all_data()
+
         {:noreply, socket}
-      
+
       {:error, reason} ->
         socket = put_flash(socket, :error, "Cancel failed: #{reason}")
         {:noreply, socket}
@@ -90,7 +94,7 @@ defmodule CoinexWeb.TradingLive do
 
   @impl true
   def handle_event("update_form", %{"order" => order_params}, socket) do
-    socket = 
+    socket =
       socket
       |> assign(:order_side, Map.get(order_params, "side", "buy"))
       |> assign(:order_type, Map.get(order_params, "type", "limit"))
@@ -105,12 +109,14 @@ defmodule CoinexWeb.TradingLive do
     case Decimal.new(price) do
       %Decimal{} = decimal_price ->
         FuturesExchange.set_current_price(decimal_price)
-        socket = 
+
+        socket =
           socket
           |> put_flash(:info, "Price set to $#{price} for testing")
           |> update_all_data()
+
         {:noreply, socket}
-      
+
       _ ->
         socket = put_flash(socket, :error, "Invalid price format")
         {:noreply, socket}
@@ -119,10 +125,11 @@ defmodule CoinexWeb.TradingLive do
 
   @impl true
   def handle_event("filter_orders", %{"status" => status}, socket) do
-    socket = 
+    socket =
       socket
       |> assign(:orders_status_filter, status)
-      |> assign(:orders_page, 1)  # Reset to first page when filtering
+      # Reset to first page when filtering
+      |> assign(:orders_page, 1)
       |> update_orders_display()
 
     {:noreply, socket}
@@ -131,7 +138,8 @@ defmodule CoinexWeb.TradingLive do
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
     page_num = String.to_integer(page)
-    socket = 
+
+    socket =
       socket
       |> assign(:orders_page, page_num)
       |> update_orders_display()
@@ -160,21 +168,23 @@ defmodule CoinexWeb.TradingLive do
     per_page = socket.assigns.orders_per_page
 
     # Sort orders descending by creation time (newest first)
-    sorted_orders = Enum.sort(all_orders, fn order1, order2 ->
-      DateTime.compare(order1.created_at, order2.created_at) != :lt
-    end)
+    sorted_orders =
+      Enum.sort(all_orders, fn order1, order2 ->
+        DateTime.compare(order1.created_at, order2.created_at) != :lt
+      end)
 
     # Filter by status
-    filtered_orders = case status_filter do
-      "all" -> sorted_orders
-      status -> Enum.filter(sorted_orders, fn order -> order.status == status end)
-    end
+    filtered_orders =
+      case status_filter do
+        "all" -> sorted_orders
+        status -> Enum.filter(sorted_orders, fn order -> order.status == status end)
+      end
 
     total_count = length(filtered_orders)
 
     # Paginate
     start_index = (page - 1) * per_page
-    
+
     paginated_orders = filtered_orders |> Enum.slice(start_index, per_page)
 
     socket

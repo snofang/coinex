@@ -14,6 +14,8 @@ defmodule Coinex.Application do
       {Phoenix.PubSub, name: Coinex.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: Coinex.Finch},
+      # Start the Price Poller GenServer (must come before FuturesExchange)
+      Coinex.PricePoller,
       # Start the Futures Exchange GenServer
       Coinex.FuturesExchange,
       # Start a worker by calling: Coinex.Worker.start_link(arg)

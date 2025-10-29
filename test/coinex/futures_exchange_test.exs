@@ -4,27 +4,24 @@ defmodule Coinex.FuturesExchangeTest do
   alias Coinex.FuturesExchange
 
   setup do
-    # Stop the GenServer if running and restart with clean state
+    # Ensure the GenServer is running
     case Process.whereis(FuturesExchange) do
       nil ->
-        case FuturesExchange.start_link([]) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _pid}} -> :ok
-        end
-      pid ->
-        GenServer.stop(pid)
-        case FuturesExchange.start_link([]) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _pid}} -> :ok
-        end
+        {:ok, _pid} = FuturesExchange.start_link([])
+
+      _pid ->
+        :ok
     end
+
+    # Reset state to ensure clean slate for each test
+    FuturesExchange.reset_state()
     :ok
   end
 
   describe "balance management" do
     test "initial balance is set correctly" do
       balance = FuturesExchange.get_balance()
-      
+
       assert Decimal.equal?(balance.available, Decimal.new("10000.00"))
       assert Decimal.equal?(balance.frozen, Decimal.new("0.00"))
       assert Decimal.equal?(balance.margin_used, Decimal.new("0.00"))
@@ -47,7 +44,7 @@ defmodule Coinex.FuturesExchangeTest do
     test "rejects zero or negative amount" do
       result = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0", "50000.0")
       assert {:error, "Amount must be positive"} = result
-      
+
       result = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "-1.0", "50000.0")
       assert {:error, "Amount must be positive"} = result
     end
@@ -55,7 +52,7 @@ defmodule Coinex.FuturesExchangeTest do
     test "rejects zero or negative price for limit orders" do
       result = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "1.0", "0")
       assert {:error, "Price must be positive"} = result
-      
+
       result = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "1.0", "-100")
       assert {:error, "Price must be positive"} = result
     end
@@ -69,8 +66,9 @@ defmodule Coinex.FuturesExchangeTest do
 
   describe "limit order management" do
     test "successfully creates limit buy order" do
-      {:ok, order} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.1", "50000.0", "client123")
-      
+      {:ok, order} =
+        FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.1", "50000.0", "client123")
+
       assert order.id == 1
       assert order.market == "BTCUSDT"
       assert order.side == "buy"
@@ -84,16 +82,16 @@ defmodule Coinex.FuturesExchangeTest do
 
     test "successfully creates limit sell order" do
       {:ok, order} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.1", "60000.0")
-      
+
       assert order.side == "sell"
       assert order.type == "limit"
     end
 
     test "freezes correct balance for buy orders" do
       {:ok, _order} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.1", "50000.0")
-      
+
       balance = FuturesExchange.get_balance()
-      
+
       # Should freeze 0.1 * 50000 = 5000 USDT
       assert Decimal.equal?(balance.available, Decimal.new("5000.00"))
       assert Decimal.equal?(balance.frozen, Decimal.new("5000.00"))
@@ -101,11 +99,11 @@ defmodule Coinex.FuturesExchangeTest do
 
     test "can cancel pending orders" do
       {:ok, order} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.1", "50000.0")
-      
+
       {:ok, cancelled_order} = FuturesExchange.cancel_order(order.id)
-      
+
       assert cancelled_order.status == "cancelled"
-      
+
       # Balance should be unfrozen
       balance = FuturesExchange.get_balance()
       assert Decimal.equal?(balance.available, Decimal.new("10000.00"))
@@ -119,14 +117,13 @@ defmodule Coinex.FuturesExchangeTest do
   end
 
   describe "market order management" do
-
     test "successfully creates and fills market buy order" do
       # Set price for market orders
       FuturesExchange.set_current_price(Decimal.new("50000.0"))
-      
+
       # Use smaller amount to ensure it fits in balance
       {:ok, order} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.01", "market123")
-      
+
       assert order.market == "BTCUSDT"
       assert order.side == "buy"
       assert order.type == "market"
@@ -139,12 +136,12 @@ defmodule Coinex.FuturesExchangeTest do
     test "market order creates position" do
       # Set price for market orders
       FuturesExchange.set_current_price(Decimal.new("50000.0"))
-      
+
       {:ok, _order} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.01")
-      
+
       positions = FuturesExchange.get_positions()
       assert length(positions) == 1
-      
+
       position = List.first(positions)
       assert position.market == "BTCUSDT"
       assert position.side == "long"
@@ -154,17 +151,16 @@ defmodule Coinex.FuturesExchangeTest do
   end
 
   describe "position management" do
-
     test "position accumulation for same side orders" do
       # Set price for market orders
       FuturesExchange.set_current_price(Decimal.new("50000.0"))
-      
+
       {:ok, _order1} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.01")
       {:ok, _order2} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.02")
-      
+
       positions = FuturesExchange.get_positions()
       assert length(positions) == 1
-      
+
       position = List.first(positions)
       assert Decimal.equal?(position.amount, Decimal.new("0.03"))
       assert position.side == "long"
@@ -173,13 +169,13 @@ defmodule Coinex.FuturesExchangeTest do
     test "position reduction for opposite side orders" do
       # Set price for market orders
       FuturesExchange.set_current_price(Decimal.new("50000.0"))
-      
+
       {:ok, _order1} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.03")
       {:ok, _order2} = FuturesExchange.submit_market_order("BTCUSDT", "sell", "0.01")
-      
+
       positions = FuturesExchange.get_positions()
       assert length(positions) == 1
-      
+
       position = List.first(positions)
       assert Decimal.equal?(position.amount, Decimal.new("0.02"))
       assert position.side == "long"
@@ -188,10 +184,10 @@ defmodule Coinex.FuturesExchangeTest do
     test "position closure when opposite order is larger" do
       # Set price for market orders
       FuturesExchange.set_current_price(Decimal.new("50000.0"))
-      
+
       {:ok, _order1} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.01")
       {:ok, _order2} = FuturesExchange.submit_market_order("BTCUSDT", "sell", "0.01")
-      
+
       positions = FuturesExchange.get_positions()
       assert length(positions) == 0
     end
@@ -199,13 +195,13 @@ defmodule Coinex.FuturesExchangeTest do
     test "position reversal when opposite order is much larger" do
       # Set price for market orders
       FuturesExchange.set_current_price(Decimal.new("50000.0"))
-      
+
       {:ok, _order1} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.01")
       {:ok, _order2} = FuturesExchange.submit_market_order("BTCUSDT", "sell", "0.03")
-      
+
       positions = FuturesExchange.get_positions()
       assert length(positions) == 1
-      
+
       position = List.first(positions)
       assert Decimal.equal?(position.amount, Decimal.new("0.02"))
       assert position.side == "short"
@@ -225,7 +221,7 @@ defmodule Coinex.FuturesExchangeTest do
     test "tracks order status changes" do
       {:ok, order} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.1", "50000.0")
       {:ok, _cancelled} = FuturesExchange.cancel_order(order.id)
-      
+
       orders = FuturesExchange.get_orders()
       cancelled_order = Enum.find(orders, &(&1.id == order.id))
       assert cancelled_order.status == "cancelled"
@@ -236,41 +232,45 @@ defmodule Coinex.FuturesExchangeTest do
     test "limit buy order fills completely when price is touched" do
       # Set initial price
       FuturesExchange.set_current_price(Decimal.new("48000.0"))
-      
+
       # Place a buy order below current price (should remain pending)
       {:ok, order} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.01", "46000.0")
       assert order.status == "pending"
-      
+
       # Update price to touch the order price (price comes down to order)
       FuturesExchange.set_current_price(Decimal.new("46000.0"))
-      
+
       # Order should now be filled completely
       orders = FuturesExchange.get_orders()
       filled_order = Enum.find(orders, &(&1.id == order.id))
-      
+
       assert filled_order.status == "filled"
-      assert Decimal.equal?(filled_order.filled_amount, Decimal.new("0.01"))  # Complete fill
-      assert Decimal.equal?(filled_order.avg_price, Decimal.new("46000.0"))   # At order price
+      # Complete fill
+      assert Decimal.equal?(filled_order.filled_amount, Decimal.new("0.01"))
+      # At order price
+      assert Decimal.equal?(filled_order.avg_price, Decimal.new("46000.0"))
     end
 
     test "limit sell order fills completely when price is touched" do
       # Set initial price
       FuturesExchange.set_current_price(Decimal.new("48000.0"))
-      
+
       # Place a sell order above current price (should remain pending)  
       {:ok, order} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.01", "50000.0")
       assert order.status == "pending"
-      
+
       # Update price to touch the order price (price goes up to order)
       FuturesExchange.set_current_price(Decimal.new("50000.0"))
-      
+
       # Order should now be filled completely
       orders = FuturesExchange.get_orders()
       filled_order = Enum.find(orders, &(&1.id == order.id))
-      
+
       assert filled_order.status == "filled"
-      assert Decimal.equal?(filled_order.filled_amount, Decimal.new("0.01"))  # Complete fill
-      assert Decimal.equal?(filled_order.avg_price, Decimal.new("50000.0"))   # At order price
+      # Complete fill
+      assert Decimal.equal?(filled_order.filled_amount, Decimal.new("0.01"))
+      # At order price
+      assert Decimal.equal?(filled_order.avg_price, Decimal.new("50000.0"))
     end
   end
 
@@ -419,10 +419,12 @@ defmodule Coinex.FuturesExchangeTest do
       balance_before = FuturesExchange.get_balance()
       # Verify balance equation: total = available + frozen + unrealized_pnl
       # (margin_used is already deducted from available, so it's not added separately)
-      expected_total = Decimal.add(
-        Decimal.add(balance_before.available, balance_before.frozen),
-        balance_before.unrealized_pnl
-      )
+      expected_total =
+        Decimal.add(
+          Decimal.add(balance_before.available, balance_before.frozen),
+          balance_before.unrealized_pnl
+        )
+
       assert Decimal.equal?(balance_before.total, expected_total)
 
       # Place order that exceeds position
@@ -430,10 +432,12 @@ defmodule Coinex.FuturesExchangeTest do
 
       balance_after = FuturesExchange.get_balance()
       # Verify balance equation still holds
-      expected_total_after = Decimal.add(
-        Decimal.add(balance_after.available, balance_after.frozen),
-        balance_after.unrealized_pnl
-      )
+      expected_total_after =
+        Decimal.add(
+          Decimal.add(balance_after.available, balance_after.frozen),
+          balance_after.unrealized_pnl
+        )
+
       assert Decimal.equal?(balance_after.total, expected_total_after)
     end
   end
@@ -682,9 +686,12 @@ defmodule Coinex.FuturesExchangeTest do
       {:ok, _} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.15")
 
       # Place multiple opposing orders
-      {:ok, order1} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.08", "51000.0")  # 0 frozen
-      {:ok, order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.18", "52000.0") # freeze 0.03*52000
-      {:ok, order3} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.05", "53000.0") # 0 frozen
+      # 0 frozen
+      {:ok, order1} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.08", "51000.0")
+      # freeze 0.03*52000
+      {:ok, order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.18", "52000.0")
+      # 0 frozen
+      {:ok, order3} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.05", "53000.0")
 
       # Verify frozen amounts
       assert Decimal.equal?(order1.frozen_amount, Decimal.new("0"))
@@ -719,10 +726,12 @@ defmodule Coinex.FuturesExchangeTest do
       assert Decimal.equal?(balance_final.frozen, Decimal.new("0"))
 
       # Verify balance integrity
-      expected_total = Decimal.add(
-        Decimal.add(balance_final.available, balance_final.frozen),
-        balance_final.unrealized_pnl
-      )
+      expected_total =
+        Decimal.add(
+          Decimal.add(balance_final.available, balance_final.frozen),
+          balance_final.unrealized_pnl
+        )
+
       assert Decimal.equal?(balance_final.total, expected_total)
     end
 

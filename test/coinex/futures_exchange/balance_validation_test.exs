@@ -11,20 +11,17 @@ defmodule Coinex.FuturesExchange.BalanceValidationTest do
   alias Coinex.FuturesExchange
 
   setup do
-    # Stop the GenServer if running and restart with clean state
+    # Ensure the GenServer is running
     case Process.whereis(FuturesExchange) do
       nil ->
-        case FuturesExchange.start_link([]) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _pid}} -> :ok
-        end
-      pid ->
-        GenServer.stop(pid)
-        case FuturesExchange.start_link([]) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _pid}} -> :ok
-        end
+        {:ok, _pid} = FuturesExchange.start_link([])
+
+      _pid ->
+        :ok
     end
+
+    # Reset state to ensure clean slate for each test
+    FuturesExchange.reset_state()
 
     # Set a consistent price
     FuturesExchange.set_current_price(Decimal.new("50000"))
@@ -51,14 +48,18 @@ defmodule Coinex.FuturesExchange.BalanceValidationTest do
       available = Decimal.to_float(balance_before.available)
 
       # Freeze most of the available balance with a limit buy order at very low price (won't fill)
-      freeze_amount = available - 30  # Leave $30 for the sell order (which should need $0)
-      freeze_btc_amount = freeze_amount / 1000  # At price 1000, well below current
-      {:ok, _freeze_order} = FuturesExchange.submit_limit_order(
-        "BTCUSDT",
-        "buy",
-        "#{freeze_btc_amount}",
-        "1000"
-      )
+      # Leave $30 for the sell order (which should need $0)
+      freeze_amount = available - 30
+      # At price 1000, well below current
+      freeze_btc_amount = freeze_amount / 1000
+
+      {:ok, _freeze_order} =
+        FuturesExchange.submit_limit_order(
+          "BTCUSDT",
+          "buy",
+          "#{freeze_btc_amount}",
+          "1000"
+        )
 
       # Verify balance is very low
       balance_after_freeze = FuturesExchange.get_balance()
@@ -91,13 +92,16 @@ defmodule Coinex.FuturesExchange.BalanceValidationTest do
       available = Decimal.to_float(balance.available)
 
       freeze_amount = available - 30
-      freeze_btc_amount = freeze_amount / 100000  # At price 100000
-      {:ok, _freeze_order} = FuturesExchange.submit_limit_order(
-        "BTCUSDT",
-        "sell",
-        "#{freeze_btc_amount}",
-        "100000"
-      )
+      # At price 100000
+      freeze_btc_amount = freeze_amount / 100_000
+
+      {:ok, _freeze_order} =
+        FuturesExchange.submit_limit_order(
+          "BTCUSDT",
+          "sell",
+          "#{freeze_btc_amount}",
+          "100000"
+        )
 
       # Verify low balance
       balance_after_freeze = FuturesExchange.get_balance()
@@ -145,7 +149,7 @@ defmodule Coinex.FuturesExchange.BalanceValidationTest do
       # Drain balance
       balance = FuturesExchange.get_balance()
       available = Decimal.to_float(balance.available)
-      freeze_btc = (available - 30) / 100000
+      freeze_btc = (available - 30) / 100_000
       {:ok, _} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "#{freeze_btc}", "100000")
 
       # Partially close position (30%)
@@ -229,7 +233,7 @@ defmodule Coinex.FuturesExchange.BalanceValidationTest do
 
       # Reverse: buy 0.15 (close 0.1 short + open 0.05 long)
       # Excess 0.05 needs 2500 margin
-      freeze_btc = (available - 2550) / 100000
+      freeze_btc = (available - 2550) / 100_000
       {:ok, _} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "#{freeze_btc}", "100000")
 
       balance_after = FuturesExchange.get_balance()
@@ -268,6 +272,7 @@ defmodule Coinex.FuturesExchange.BalanceValidationTest do
       # Cancel the freezing order to see actual available balance after close
       orders = FuturesExchange.get_orders()
       pending_order = Enum.find(orders, &(&1.status == "pending"))
+
       if pending_order do
         {:ok, _} = FuturesExchange.cancel_order(pending_order.id)
       end
@@ -289,9 +294,11 @@ defmodule Coinex.FuturesExchange.BalanceValidationTest do
         {:ok, _} ->
           # We had enough balance after fees
           assert true
+
         {:error, "Insufficient balance"} ->
           # We didn't have enough after fees - also valid
           assert true
+
         other ->
           flunk("Unexpected result: #{inspect(other)}")
       end
@@ -308,14 +315,17 @@ defmodule Coinex.FuturesExchange.BalanceValidationTest do
       # Need to be very aggressive with freezing to test the edge case
       # Use larger pending orders at low prices to freeze more funds
       # Each pending buy order at price 1000 needs amount * 1000 frozen
-      total_to_freeze = available - 50  # Leave just $50 available
+      # Leave just $50 available
+      total_to_freeze = available - 50
 
       # Calculate BTC amount needed to freeze this much at price 1000
-      btc_per_order = total_to_freeze / 10 / 1000  # Split into 10 orders
+      # Split into 10 orders
+      btc_per_order = total_to_freeze / 10 / 1000
 
       # Create many small pending orders to consume available balance
       for price <- [1000, 990, 980, 970, 960, 950, 940, 930, 920, 910] do
-        {:ok, _} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "#{btc_per_order}", "#{price}")
+        {:ok, _} =
+          FuturesExchange.submit_limit_order("BTCUSDT", "buy", "#{btc_per_order}", "#{price}")
       end
 
       # Verify low available balance
@@ -337,7 +347,8 @@ defmodule Coinex.FuturesExchange.BalanceValidationTest do
 
       # Verify we couldn't have opened a new position with this low balance
       # but we could close the existing one
-      assert available_after < Decimal.to_float(Decimal.mult(Decimal.new("0.1"), Decimal.new("50000")))
+      assert available_after <
+               Decimal.to_float(Decimal.mult(Decimal.new("0.1"), Decimal.new("50000")))
     end
 
     test "zero available balance after fees still allows position-closing order" do
@@ -396,7 +407,8 @@ defmodule Coinex.FuturesExchange.BalanceValidationTest do
       # Freeze all available balance
       balance = FuturesExchange.get_balance()
       available = Decimal.to_float(balance.available)
-      freeze_btc = (available - 0.5) / 1000  # Leave almost nothing
+      # Leave almost nothing
+      freeze_btc = (available - 0.5) / 1000
       {:ok, _} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "#{freeze_btc}", "1000")
 
       # Should be able to place limit sell order to close position

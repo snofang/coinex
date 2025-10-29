@@ -12,7 +12,7 @@ defmodule CoinexWeb.FuturesController do
           message: "Price not available yet",
           data: nil
         })
-      
+
       price ->
         json(conn, %{
           code: 0,
@@ -20,9 +20,12 @@ defmodule CoinexWeb.FuturesController do
           data: %{
             ticker: %{
               last: Decimal.to_string(price),
-              open: Decimal.to_string(price),  # Simplified
-              high: Decimal.to_string(price),  # Simplified
-              low: Decimal.to_string(price),   # Simplified
+              # Simplified
+              open: Decimal.to_string(price),
+              # Simplified
+              high: Decimal.to_string(price),
+              # Simplified
+              low: Decimal.to_string(price),
               vol: "0",
               amount: "0",
               period: 86400,
@@ -50,9 +53,9 @@ defmodule CoinexWeb.FuturesController do
       "amount" => amount,
       "price" => price
     } = params
-    
+
     client_id = Map.get(params, "client_id")
-    
+
     case FuturesExchange.submit_limit_order(market, side, amount, price, client_id) do
       {:ok, order} ->
         json(conn, %{
@@ -60,7 +63,7 @@ defmodule CoinexWeb.FuturesController do
           message: "Ok",
           data: serialize_order(order)
         })
-      
+
       {:error, reason} ->
         json(conn, %{
           code: 1,
@@ -77,9 +80,9 @@ defmodule CoinexWeb.FuturesController do
       "side" => side,
       "amount" => amount
     } = params
-    
+
     client_id = Map.get(params, "client_id")
-    
+
     case FuturesExchange.submit_market_order(market, side, amount, client_id) do
       {:ok, order} ->
         json(conn, %{
@@ -87,7 +90,7 @@ defmodule CoinexWeb.FuturesController do
           message: "Ok",
           data: serialize_order(order)
         })
-      
+
       {:error, reason} ->
         json(conn, %{
           code: 1,
@@ -106,7 +109,7 @@ defmodule CoinexWeb.FuturesController do
           message: "Ok",
           data: serialize_order(order)
         })
-      
+
       {:error, reason} ->
         json(conn, %{
           code: 1,
@@ -119,15 +122,20 @@ defmodule CoinexWeb.FuturesController do
   # GET /perpetual/v1/order/pending
   def pending_orders(conn, params) do
     orders = FuturesExchange.get_orders()
-    pending_orders = Enum.filter(orders, & &1.status == "pending")
+    pending_orders = Enum.filter(orders, &(&1.status == "pending"))
 
     # Apply market filter if provided
-    filtered_orders = case Map.get(params, "market") do
-      nil -> pending_orders
-      market when is_binary(market) ->
-        Enum.filter(pending_orders, & &1.market == market)
-      _ -> pending_orders
-    end
+    filtered_orders =
+      case Map.get(params, "market") do
+        nil ->
+          pending_orders
+
+        market when is_binary(market) ->
+          Enum.filter(pending_orders, &(&1.market == market))
+
+        _ ->
+          pending_orders
+      end
 
     # Apply pagination with safe integer parsing
     offset = safe_parse_integer(Map.get(params, "offset", "0"), 0)
@@ -161,31 +169,46 @@ defmodule CoinexWeb.FuturesController do
   def finished_orders(conn, params) do
     # Get all orders and filter for finished ones
     orders = FuturesExchange.get_orders()
-    finished_orders = Enum.filter(orders, fn order ->
-      order.status in ["filled", "cancelled"]
-    end)
+
+    finished_orders =
+      Enum.filter(orders, fn order ->
+        order.status in ["filled", "cancelled"]
+      end)
 
     # Apply market filter if provided
-    filtered_orders = case Map.get(params, "market") do
-      nil -> finished_orders
-      market when is_binary(market) ->
-        Enum.filter(finished_orders, & &1.market == market)
-      _ -> finished_orders
-    end
+    filtered_orders =
+      case Map.get(params, "market") do
+        nil ->
+          finished_orders
+
+        market when is_binary(market) ->
+          Enum.filter(finished_orders, &(&1.market == market))
+
+        _ ->
+          finished_orders
+      end
 
     # Apply side filter if provided (0: All, 1: Sell, 2: Buy)
-    side_filtered_orders = case Map.get(params, "side") do
-      nil -> filtered_orders
-      "0" -> filtered_orders
-      side_str when is_binary(side_str) ->
-        case Integer.parse(side_str) do
-          {side, ""} -> Enum.filter(filtered_orders, & &1.side == side)
-          _ -> filtered_orders
-        end
-      side when is_integer(side) ->
-        Enum.filter(filtered_orders, & &1.side == side)
-      _ -> filtered_orders
-    end
+    side_filtered_orders =
+      case Map.get(params, "side") do
+        nil ->
+          filtered_orders
+
+        "0" ->
+          filtered_orders
+
+        side_str when is_binary(side_str) ->
+          case Integer.parse(side_str) do
+            {side, ""} -> Enum.filter(filtered_orders, &(&1.side == side))
+            _ -> filtered_orders
+          end
+
+        side when is_integer(side) ->
+          Enum.filter(filtered_orders, &(&1.side == side))
+
+        _ ->
+          filtered_orders
+      end
 
     # Apply time filtering if provided
     time_filtered_orders = apply_time_filters(side_filtered_orders, params)
@@ -197,16 +220,16 @@ defmodule CoinexWeb.FuturesController do
     # Ensure positive values and limit maximum records per request
     offset = max(offset, 0)
     limit = limit |> max(1) |> min(100)
-    
+
     # Sort by created_at descending (newest first)
     sorted_orders = Enum.sort_by(time_filtered_orders, & &1.created_at, {:desc, DateTime})
-    
+
     # Apply pagination
-    paginated_orders = 
+    paginated_orders =
       sorted_orders
       |> Enum.drop(offset)
       |> Enum.take(limit)
-    
+
     json(conn, %{
       code: 0,
       message: "Ok",
@@ -221,7 +244,7 @@ defmodule CoinexWeb.FuturesController do
   # GET /perpetual/v1/position/pending
   def pending_positions(conn, _params) do
     positions = FuturesExchange.get_positions()
-    
+
     json(conn, %{
       code: 0,
       message: "Ok",
@@ -232,7 +255,7 @@ defmodule CoinexWeb.FuturesController do
   # GET /perpetual/v1/asset/query
   def query_asset(conn, _params) do
     balance = FuturesExchange.get_balance()
-    
+
     json(conn, %{
       code: 0,
       message: "Ok",
@@ -240,7 +263,8 @@ defmodule CoinexWeb.FuturesController do
         "USDT" => %{
           available: format_decimal(balance.available),
           frozen: format_decimal(balance.frozen),
-          transfer: "0.00",  # Not implemented
+          # Not implemented
+          transfer: "0.00",
           balance_total: format_decimal(balance.total),
           margin: format_decimal(balance.margin_used),
           profit_unreal: format_decimal(balance.unrealized_pnl || Decimal.new("0"))
@@ -257,7 +281,8 @@ defmodule CoinexWeb.FuturesController do
       data: [
         %{
           name: "BTCUSDT",
-          type: 1,  # Linear contract
+          # Linear contract
+          type: 1,
           stock: "BTC",
           money: "USDT",
           fee_prec: 4,
@@ -279,12 +304,14 @@ defmodule CoinexWeb.FuturesController do
 
   # Safely parse integer from string or integer, with default fallback
   defp safe_parse_integer(value, _default) when is_integer(value), do: value
+
   defp safe_parse_integer(value, default) when is_binary(value) do
     case Integer.parse(value) do
       {int, ""} -> int
       _ -> default
     end
   end
+
   defp safe_parse_integer(_, default), do: default
 
   defp apply_time_filters(orders, params) do
@@ -294,16 +321,20 @@ defmodule CoinexWeb.FuturesController do
   end
 
   defp apply_start_time_filter(orders, nil), do: orders
+
   defp apply_start_time_filter(orders, start_time_str) do
     start_time = String.to_integer(start_time_str) |> DateTime.from_unix!()
+
     Enum.filter(orders, fn order ->
       DateTime.compare(order.updated_at, start_time) != :lt
     end)
   end
 
   defp apply_end_time_filter(orders, nil), do: orders
+
   defp apply_end_time_filter(orders, end_time_str) do
     end_time = String.to_integer(end_time_str) |> DateTime.from_unix!()
+
     Enum.filter(orders, fn order ->
       DateTime.compare(order.updated_at, end_time) != :gt
     end)

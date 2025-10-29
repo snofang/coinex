@@ -9,12 +9,12 @@
         <div class="bg-white px-4 py-2 rounded-lg shadow">
           <span class="text-sm text-gray-500">BTCUSDT Price:</span>
           <span class="ml-2 text-lg font-bold text-blue-600">
-            <%= format_price(@current_price) %>
+            {format_price(@current_price)}
           </span>
         </div>
         <div class="bg-white px-4 py-2 rounded-lg shadow">
           <span class="text-sm text-gray-500">Last Update:</span>
-          <span class="ml-2 text-sm font-mono"><%= Time.utc_now() |> Time.to_string() %></span>
+          <span class="ml-2 text-sm font-mono">{Time.utc_now() |> Time.to_string()}</span>
         </div>
       </div>
     </div>
@@ -28,27 +28,27 @@
             <div class="flex justify-between">
               <span class="text-gray-600">Available:</span>
               <span class="font-mono font-semibold text-green-600">
-                $<%= format_decimal(@balance.available) %>
+                ${format_decimal(@balance.available)}
               </span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-600">Frozen:</span>
-              <span class="font-mono">$<%= format_decimal(@balance.frozen) %></span>
+              <span class="font-mono">${format_decimal(@balance.frozen)}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-600">Margin Used:</span>
-              <span class="font-mono">$<%= format_decimal(@balance.margin_used) %></span>
+              <span class="font-mono">${format_decimal(@balance.margin_used)}</span>
             </div>
             <div class="flex justify-between border-t pt-2">
               <span class="text-gray-600">Unrealized PnL:</span>
               <span class={["font-mono font-semibold", pnl_class(@balance.unrealized_pnl)]}>
-                $<%= format_decimal(@balance.unrealized_pnl) %>
+                ${format_decimal(@balance.unrealized_pnl)}
               </span>
             </div>
             <div class="flex justify-between border-t pt-2">
               <span class="font-semibold">Total:</span>
               <span class="font-mono font-bold text-lg">
-                $<%= format_decimal(@balance.total) %>
+                ${format_decimal(@balance.total)}
               </span>
             </div>
           </div>
@@ -56,8 +56,8 @@
           <div class="text-gray-500">Loading balance...</div>
         <% end %>
       </div>
-
-      <!-- Order Form Card -->
+      
+<!-- Order Form Card -->
       <div class="bg-white rounded-lg shadow p-6">
         <h2 class="text-xl font-semibold mb-4 text-gray-800">Place Order</h2>
         <.form for={@order_form} phx-submit="place_order" phx-change="update_form" id="order-form">
@@ -65,22 +65,28 @@
             <!-- Order Side -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Side</label>
-              <select name="order[side]" class="w-full border border-gray-300 rounded-md px-3 py-2">
+              <select
+                name="order[side]"
+                class="w-full border border-gray-300 rounded-md px-3 py-2"
+              >
                 <option value="buy" selected={@order_side == "buy"}>Buy (Long)</option>
                 <option value="sell" selected={@order_side == "sell"}>Sell (Short)</option>
               </select>
             </div>
-
-            <!-- Order Type -->
+            
+<!-- Order Type -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
-              <select name="order[type]" class="w-full border border-gray-300 rounded-md px-3 py-2">
+              <select
+                name="order[type]"
+                class="w-full border border-gray-300 rounded-md px-3 py-2"
+              >
                 <option value="market" selected={@order_type == "market"}>Market</option>
                 <option value="limit" selected={@order_type == "limit"}>Limit</option>
               </select>
             </div>
-
-            <!-- Amount -->
+            
+<!-- Amount -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Amount (BTC)</label>
               <input
@@ -94,9 +100,12 @@
                 required
               />
             </div>
-
-            <!-- Price (only for limit orders) -->
-            <div class={["transition-all duration-200", if(@order_type == "limit", do: "block", else: "hidden")]}>
+            
+<!-- Price (only for limit orders) -->
+            <div class={[
+              "transition-all duration-200",
+              if(@order_type == "limit", do: "block", else: "hidden")
+            ]}>
               <label class="block text-sm font-medium text-gray-700 mb-1">Price (USDT)</label>
               <input
                 type="number"
@@ -120,12 +129,12 @@
                 )
               ]}
             >
-              Place <%= String.capitalize(@order_side) %> Order
+              Place {String.capitalize(@order_side)} Order
             </button>
           </div>
         </.form>
-
-        <!-- Test Price Setting -->
+        
+<!-- Test Price Setting -->
         <div class="mt-6 pt-6 border-t">
           <h3 class="text-sm font-medium text-gray-700 mb-2">Test Price Override</h3>
           <form phx-submit="set_test_price" class="flex space-x-2">
@@ -148,8 +157,8 @@
           </p>
         </div>
       </div>
-
-      <!-- Quick Actions Card -->
+      
+<!-- Quick Actions Card -->
       <div class="bg-white rounded-lg shadow p-6">
         <h2 class="text-xl font-semibold mb-4 text-gray-800">Quick Actions</h2>
         <div class="space-y-3">
@@ -184,45 +193,57 @@
         </div>
       </div>
     </div>
-
-    <!-- Orders Table -->
+    
+<!-- Orders Table -->
     <div class="mt-6 bg-white rounded-lg shadow">
       <div class="px-6 py-4 border-b border-gray-200">
         <div class="flex justify-between items-center">
           <h2 class="text-xl font-semibold text-gray-800">Orders</h2>
           <div class="text-sm text-gray-500">
-            Showing <%= length(@orders_filtered) %> of <%= @orders_total_count %> orders
+            Showing {length(@orders_filtered)} of {@orders_total_count} orders
           </div>
         </div>
         
-        <!-- Status Filter -->
+<!-- Status Filter -->
         <div class="mt-4 flex flex-wrap gap-2">
           <span class="text-sm font-medium text-gray-700 mr-3 py-2">Filter by status:</span>
-          <button 
-            phx-click="filter_orders" 
+          <button
+            phx-click="filter_orders"
             phx-value-status="all"
-            class={["px-3 py-1 text-xs rounded-full transition-colors", status_filter_class(@orders_status_filter, "all")]}
+            class={[
+              "px-3 py-1 text-xs rounded-full transition-colors",
+              status_filter_class(@orders_status_filter, "all")
+            ]}
           >
             All
           </button>
-          <button 
-            phx-click="filter_orders" 
+          <button
+            phx-click="filter_orders"
             phx-value-status="pending"
-            class={["px-3 py-1 text-xs rounded-full transition-colors", status_filter_class(@orders_status_filter, "pending")]}
+            class={[
+              "px-3 py-1 text-xs rounded-full transition-colors",
+              status_filter_class(@orders_status_filter, "pending")
+            ]}
           >
             Pending
           </button>
-          <button 
-            phx-click="filter_orders" 
+          <button
+            phx-click="filter_orders"
             phx-value-status="filled"
-            class={["px-3 py-1 text-xs rounded-full transition-colors", status_filter_class(@orders_status_filter, "filled")]}
+            class={[
+              "px-3 py-1 text-xs rounded-full transition-colors",
+              status_filter_class(@orders_status_filter, "filled")
+            ]}
           >
             Filled
           </button>
-          <button 
-            phx-click="filter_orders" 
+          <button
+            phx-click="filter_orders"
             phx-value-status="cancelled"
-            class={["px-3 py-1 text-xs rounded-full transition-colors", status_filter_class(@orders_status_filter, "cancelled")]}
+            class={[
+              "px-3 py-1 text-xs rounded-full transition-colors",
+              status_filter_class(@orders_status_filter, "cancelled")
+            ]}
           >
             Cancelled
           </button>
@@ -232,48 +253,73 @@
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-gray-50">
             <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Side</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Filled</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time ↓</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                ID
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Side
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Type
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Amount
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Price
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Status
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Filled
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Time ↓
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody class="bg-white divide-y divide-gray-200">
             <%= for order <- @orders_filtered do %>
               <tr>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                  #<%= order.id %>
+                  #{order.id}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm">
-                  <span class={if order.side == "buy", do: "text-green-600 font-semibold", else: "text-red-600 font-semibold"}>
-                    <%= String.upcase(order.side) %>
+                  <span class={
+                    if order.side == "buy",
+                      do: "text-green-600 font-semibold",
+                      else: "text-red-600 font-semibold"
+                  }>
+                    {String.upcase(order.side)}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  <%= String.capitalize(order.type) %>
+                  {String.capitalize(order.type)}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                  <%= format_decimal(order.amount) %>
+                  {format_decimal(order.amount)}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                  <%= if order.price, do: format_price(order.price), else: "Market" %>
+                  {if order.price, do: format_price(order.price), else: "Market"}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span class={["px-2 inline-flex text-xs leading-5 font-semibold rounded-full", order_status_class(order.status)]}>
-                    <%= String.capitalize(order.status) %>
+                  <span class={[
+                    "px-2 inline-flex text-xs leading-5 font-semibold rounded-full",
+                    order_status_class(order.status)
+                  ]}>
+                    {String.capitalize(order.status)}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                  <%= format_decimal(order.filled_amount) %>
-                  <%= if order.avg_price, do: " @ #{format_price(order.avg_price)}", else: "" %>
+                  {format_decimal(order.filled_amount)}
+                  {if order.avg_price, do: " @ #{format_price(order.avg_price)}", else: ""}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  <%= format_datetime(order.created_at) %>
+                  {format_datetime(order.created_at)}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <%= if order.status == "pending" do %>
@@ -305,15 +351,15 @@
         </table>
       </div>
       
-      <!-- Pagination -->
+<!-- Pagination -->
       <%= if @orders_total_count > @orders_per_page do %>
         <div class="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
           <div class="flex items-center justify-between">
             <div class="flex-1 flex justify-between sm:hidden">
               <!-- Mobile pagination -->
               <%= if @orders_page > 1 do %>
-                <button 
-                  phx-click="change_page" 
+                <button
+                  phx-click="change_page"
                   phx-value-page={@orders_page - 1}
                   class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                 >
@@ -321,8 +367,8 @@
                 </button>
               <% end %>
               <%= if @orders_page < total_pages(@orders_total_count, @orders_per_page) do %>
-                <button 
-                  phx-click="change_page" 
+                <button
+                  phx-click="change_page"
                   phx-value-page={@orders_page + 1}
                   class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                 >
@@ -330,19 +376,26 @@
                 </button>
               <% end %>
             </div>
-            
+
             <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
               <div>
                 <p class="text-sm text-gray-700">
-                  Showing page <span class="font-medium"><%= @orders_page %></span> of <span class="font-medium"><%= total_pages(@orders_total_count, @orders_per_page) %></span>
+                  Showing page <span class="font-medium">{@orders_page}</span>
+                  of
+                  <span class="font-medium">
+                    {total_pages(@orders_total_count, @orders_per_page)}
+                  </span>
                 </p>
               </div>
               <div>
-                <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                <nav
+                  class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px"
+                  aria-label="Pagination"
+                >
                   <!-- Previous button -->
                   <%= if @orders_page > 1 do %>
-                    <button 
-                      phx-click="change_page" 
+                    <button
+                      phx-click="change_page"
                       phx-value-page={@orders_page - 1}
                       class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
                     >
@@ -350,27 +403,27 @@
                     </button>
                   <% end %>
                   
-                  <!-- Page numbers -->
+<!-- Page numbers -->
                   <%= for page_num <- page_numbers(@orders_page, total_pages(@orders_total_count, @orders_per_page)) do %>
-                    <button 
-                      phx-click="change_page" 
+                    <button
+                      phx-click="change_page"
                       phx-value-page={page_num}
                       class={[
                         "relative inline-flex items-center px-4 py-2 border text-sm font-medium",
-                        if(@orders_page == page_num, 
-                          do: "z-10 bg-blue-50 border-blue-500 text-blue-600", 
+                        if(@orders_page == page_num,
+                          do: "z-10 bg-blue-50 border-blue-500 text-blue-600",
                           else: "bg-white border-gray-300 text-gray-500 hover:bg-gray-50"
                         )
                       ]}
                     >
-                      <%= page_num %>
+                      {page_num}
                     </button>
                   <% end %>
                   
-                  <!-- Next button -->
+<!-- Next button -->
                   <%= if @orders_page < total_pages(@orders_total_count, @orders_per_page) do %>
-                    <button 
-                      phx-click="change_page" 
+                    <button
+                      phx-click="change_page"
                       phx-value-page={@orders_page + 1}
                       class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
                     >
@@ -384,8 +437,8 @@
         </div>
       <% end %>
     </div>
-
-    <!-- Positions Table -->
+    
+<!-- Positions Table -->
     <div class="mt-6 bg-white rounded-lg shadow">
       <div class="px-6 py-4 border-b border-gray-200">
         <h2 class="text-xl font-semibold text-gray-800">Positions</h2>
@@ -394,42 +447,56 @@
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-gray-50">
             <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Market</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Side</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entry Price</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unrealized PnL</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Margin Used</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Market
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Side
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Amount
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Entry Price
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Unrealized PnL
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Margin Used
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Time
+              </th>
             </tr>
           </thead>
           <tbody class="bg-white divide-y divide-gray-200">
             <%= for position <- @positions do %>
               <tr>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                  <%= position.market %>
+                  {position.market}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm">
                   <span class={position_side_class(position.side)}>
-                    <%= String.upcase(position.side) %>
+                    {String.upcase(position.side)}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                  <%= format_decimal(position.amount) %>
+                  {format_decimal(position.amount)}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                  <%= format_price(position.entry_price) %>
+                  {format_price(position.entry_price)}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-mono">
                   <span class={pnl_class(position.unrealized_pnl)}>
-                    $<%= format_decimal(position.unrealized_pnl) %>
+                    ${format_decimal(position.unrealized_pnl)}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                  $<%= format_decimal(position.margin_used) %>
+                  ${format_decimal(position.margin_used)}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  <%= format_datetime(position.created_at) %>
+                  {format_datetime(position.created_at)}
                 </td>
               </tr>
             <% end %>

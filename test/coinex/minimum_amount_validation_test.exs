@@ -3,12 +3,18 @@ defmodule Coinex.MinimumAmountValidationTest do
   alias Coinex.FuturesExchange
 
   setup do
-    # Clean state for each test
-    if Process.whereis(FuturesExchange) do
-      GenServer.stop(FuturesExchange)
+    # Ensure the GenServer is running
+    case Process.whereis(FuturesExchange) do
+      nil ->
+        {:ok, _pid} = FuturesExchange.start_link([])
+
+      _pid ->
+        :ok
     end
-    {:ok, _pid} = FuturesExchange.start_link([])
-    
+
+    # Reset state to ensure clean slate for each test
+    FuturesExchange.reset_state()
+
     # Set predictable price
     FuturesExchange.set_current_price(Decimal.new("50000.0"))
     :ok
@@ -19,17 +25,21 @@ defmodule Coinex.MinimumAmountValidationTest do
       # Should reject orders below 0.0001 BTC
       {:error, reason} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.00009")
       assert reason == "Amount must be at least 0.0001 BTC"
-      
+
       {:error, reason} = FuturesExchange.submit_market_order("BTCUSDT", "sell", "0.00005")
       assert reason == "Amount must be at least 0.0001 BTC"
     end
 
     test "rejects limit orders below minimum amount" do
       # Should reject limit orders below 0.0001 BTC
-      {:error, reason} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.00009", "50000.0")
+      {:error, reason} =
+        FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.00009", "50000.0")
+
       assert reason == "Amount must be at least 0.0001 BTC"
-      
-      {:error, reason} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.00005", "50000.0")
+
+      {:error, reason} =
+        FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.00005", "50000.0")
+
       assert reason == "Amount must be at least 0.0001 BTC"
     end
 
@@ -39,7 +49,9 @@ defmodule Coinex.MinimumAmountValidationTest do
       assert Decimal.equal?(market_order.amount, Decimal.new("0.0001"))
       assert market_order.status == "filled"
 
-      {:ok, limit_order} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.0001", "48000.0")
+      {:ok, limit_order} =
+        FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.0001", "48000.0")
+
       assert Decimal.equal?(limit_order.amount, Decimal.new("0.0001"))
       assert limit_order.status == "pending"
     end
@@ -56,10 +68,10 @@ defmodule Coinex.MinimumAmountValidationTest do
     test "validates very small rejected amounts" do
       # Test various small amounts that should be rejected
       invalid_amounts = ["0.00001", "0.000001", "0.00009999", "0"]
-      
+
       for amount <- invalid_amounts do
         {:error, reason} = FuturesExchange.submit_market_order("BTCUSDT", "buy", amount)
-        
+
         if amount == "0" do
           assert reason == "Amount must be positive"
         else
