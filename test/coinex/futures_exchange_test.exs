@@ -217,15 +217,6 @@ defmodule Coinex.FuturesExchangeTest do
       orders = FuturesExchange.get_orders()
       assert length(orders) == 2
     end
-
-    test "tracks order status changes" do
-      {:ok, order} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.1", "50000.0")
-      {:ok, _cancelled} = FuturesExchange.cancel_order(order.id)
-
-      orders = FuturesExchange.get_orders()
-      cancelled_order = Enum.find(orders, &(&1.id == order.id))
-      assert cancelled_order.status == "cancelled"
-    end
   end
 
   describe "automatic order filling (simple model)" do

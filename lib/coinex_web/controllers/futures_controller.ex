@@ -172,7 +172,7 @@ defmodule CoinexWeb.FuturesController do
 
     finished_orders =
       Enum.filter(orders, fn order ->
-        order.status in ["filled", "cancelled"]
+        order.status == "filled"
       end)
 
     # Apply market filter if provided

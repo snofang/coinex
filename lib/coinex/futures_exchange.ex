@@ -240,8 +240,9 @@ defmodule Coinex.FuturesExchange do
             {:cancel_order, order}
           )
 
+        # Delete the order instead of keeping it
         updated_order = %{order | status: "cancelled", updated_at: DateTime.utc_now()}
-        new_orders = Map.put(state.orders, order_id, updated_order)
+        new_orders = Map.delete(state.orders, order_id)
 
         new_state = %{state | orders: new_orders, balance: new_balance, positions: new_positions}
         {:reply, {:ok, updated_order}, new_state}
