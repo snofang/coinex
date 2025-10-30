@@ -262,4 +262,67 @@ defmodule Coinex.PositionReversalFrozenBugTest do
     assert Decimal.equal?(balance_after_price_updates.total, calculated_total),
       "Total should equal available + frozen + unrealized_pnl"
   end
+
+  test "multiple opposing orders that collectively exceed position should freeze excess" do
+    # Bug: Each opposing order is calculated independently against the position
+    # without considering cumulative effect of pending opposing orders
+    initial_price = Decimal.new("110000.0")
+    FuturesExchange.set_current_price(initial_price)
+
+    # Create LONG position
+    {:ok, _} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.001")
+
+    positions = FuturesExchange.get_positions()
+    [position] = positions
+    assert position.side == "long"
+    assert Decimal.equal?(position.amount, Decimal.new("0.001"))
+
+    balance_after_position = FuturesExchange.get_balance()
+    IO.puts("\n=== After creating LONG position (0.001 BTC) ===")
+    IO.puts("Available: $#{Decimal.to_string(balance_after_position.available)}")
+    IO.puts("Frozen: $#{Decimal.to_string(balance_after_position.frozen)}")
+    IO.puts("Margin: $#{Decimal.to_string(balance_after_position.margin_used)}")
+
+    # Place multiple SELL orders (opposing side) that individually don't exceed position
+    # but collectively do exceed it
+    price = Decimal.new("111000.0")
+
+    {:ok, order1} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.0003", Decimal.to_string(price))
+    IO.puts("\n=== After SELL order #1 (0.0003 BTC) ===")
+    IO.puts("Order frozen: $#{Decimal.to_string(order1.frozen_amount)}")
+
+    {:ok, order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.0003", Decimal.to_string(price))
+    IO.puts("\n=== After SELL order #2 (0.0003 BTC) ===")
+    IO.puts("Order frozen: $#{Decimal.to_string(order2.frozen_amount)}")
+
+    {:ok, order3} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.0005", Decimal.to_string(price))
+    IO.puts("\n=== After SELL order #3 (0.0005 BTC) ===")
+    IO.puts("Order frozen: $#{Decimal.to_string(order3.frozen_amount)}")
+
+    balance_final = FuturesExchange.get_balance()
+    IO.puts("\n=== Final balance ===")
+    IO.puts("Available: $#{Decimal.to_string(balance_final.available)}")
+    IO.puts("Frozen: $#{Decimal.to_string(balance_final.frozen)}")
+
+    # Calculate cumulative order amounts
+    total_sell_orders = Decimal.new("0.0003")
+      |> Decimal.add(Decimal.new("0.0003"))
+      |> Decimal.add(Decimal.new("0.0005"))
+
+    IO.puts("\n=== Analysis ===")
+    IO.puts("Position: LONG #{Decimal.to_string(position.amount)} BTC")
+    IO.puts("Total SELL orders: #{Decimal.to_string(total_sell_orders)} BTC")
+    IO.puts("Excess over position: #{Decimal.to_string(Decimal.sub(total_sell_orders, position.amount))} BTC")
+
+    # The cumulative SELL orders (0.0011) exceed the LONG position (0.001)
+    # Expected: The excess (0.0001 BTC) should require frozen margin = 0.0001 * 111000 = 11.1 USDT
+    excess_amount = Decimal.sub(total_sell_orders, position.amount)
+    expected_frozen = Decimal.mult(excess_amount, price)
+
+    IO.puts("\nExpected frozen for excess: $#{Decimal.to_string(expected_frozen)}")
+    IO.puts("Actual frozen: $#{Decimal.to_string(balance_final.frozen)}")
+
+    assert Decimal.equal?(balance_final.frozen, expected_frozen),
+      "Frozen amount should account for cumulative opposing orders exceeding position"
+  end
 end

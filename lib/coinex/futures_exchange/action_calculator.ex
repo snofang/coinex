@@ -33,7 +33,9 @@ defmodule Coinex.FuturesExchange.ActionCalculator do
   def calculate_action_effect(balance, positions, action)
 
   def calculate_action_effect(balance, positions, {:place_order, order}) do
-    frozen_amount = calculate_frozen_for_order(order, positions)
+    # Use the pre-calculated frozen_amount from the order
+    # (already calculated considering pending orders in FuturesExchange)
+    frozen_amount = order.frozen_amount
 
     updated_available = Decimal.sub(balance.available, frozen_amount)
     updated_frozen = Decimal.add(balance.frozen, frozen_amount)
@@ -159,18 +161,18 @@ defmodule Coinex.FuturesExchange.ActionCalculator do
   @doc """
   Calculate frozen amount needed for a new order.
 
-  This is order-independent - only considers the order vs current positions.
-  No dependency on existing pending orders.
+  Considers both the current position and pending orders on the opposing side
+  to correctly calculate margin requirements for orders that would exceed the position.
   """
-  @spec calculate_frozen_for_order(Order.t(), map()) :: Decimal.t()
-  def calculate_frozen_for_order(order, positions) do
+  @spec calculate_frozen_for_order(Order.t(), map(), map()) :: Decimal.t()
+  def calculate_frozen_for_order(order, positions, pending_orders \\ %{}) do
     price = get_order_price(order)
     position = Map.get(positions, order.market)
 
     if is_nil(price) do
       Decimal.new("0")
     else
-      calculate_frozen_for_position_and_order(position, order, price)
+      calculate_frozen_for_position_and_order(position, order, price, pending_orders)
     end
   end
 
@@ -180,12 +182,12 @@ defmodule Coinex.FuturesExchange.ActionCalculator do
   defp get_order_price(%Order{type: "market", price: price}), do: price
 
   # Calculate frozen amount based on position vs order
-  defp calculate_frozen_for_position_and_order(nil, order, price) do
+  defp calculate_frozen_for_position_and_order(nil, order, price, _pending_orders) do
     # No existing position - need full margin for new position
     Decimal.mult(order.amount, price)
   end
 
-  defp calculate_frozen_for_position_and_order(position, order, price) do
+  defp calculate_frozen_for_position_and_order(position, order, price, pending_orders) do
     order_side = if(order.side == "buy", do: "long", else: "short")
 
     cond do
@@ -195,15 +197,43 @@ defmodule Coinex.FuturesExchange.ActionCalculator do
 
       # Opposite side - reducing or reversing position
       position.side != order_side ->
-        if Decimal.compare(order.amount, position.amount) == :gt do
-          # Order exceeds position - margin needed for excess amount
-          excess = Decimal.sub(order.amount, position.amount)
-          Decimal.mult(excess, price)
+        # Calculate total pending opposing orders (same side as current order)
+        total_pending_opposing = calculate_total_pending_opposing_orders(
+          pending_orders,
+          order.market,
+          order.side
+        )
+
+        # Effective remaining position after all pending opposing orders
+        remaining_position = Decimal.sub(position.amount, total_pending_opposing)
+
+        if Decimal.compare(remaining_position, Decimal.new("0")) == :lt do
+          # Pending orders already exceed position - need full margin for this order
+          # plus margin for the excess that already exists
+          Decimal.mult(order.amount, price)
         else
-          # Order within position size - no additional margin needed
-          Decimal.new("0")
+          # Check if this order exceeds the remaining position
+          if Decimal.compare(order.amount, remaining_position) == :gt do
+            # Order exceeds remaining position - margin needed for excess amount
+            excess = Decimal.sub(order.amount, remaining_position)
+            Decimal.mult(excess, price)
+          else
+            # Order within remaining position size - no additional margin needed
+            Decimal.new("0")
+          end
         end
     end
+  end
+
+  # Calculate total amount of pending orders on the same side as the given order side
+  defp calculate_total_pending_opposing_orders(pending_orders, market, order_side) do
+    pending_orders
+    |> Map.values()
+    |> Enum.filter(fn order ->
+      order.market == market && order.side == order_side && order.status == "pending"
+    end)
+    |> Enum.map(& &1.amount)
+    |> Enum.reduce(Decimal.new("0"), &Decimal.add/2)
   end
 
   # Update position after order fill

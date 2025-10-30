@@ -347,9 +347,9 @@ defmodule Coinex.FuturesExchange do
           order
         end
 
-      # Calculate frozen amount using pure function
+      # Calculate frozen amount using pure function, considering pending orders
       frozen_amount =
-        ActionCalculator.calculate_frozen_for_order(order_with_price, state.positions)
+        ActionCalculator.calculate_frozen_for_order(order_with_price, state.positions, state.orders)
 
       # Update order with the calculated frozen amount
       order_with_frozen = %{order_with_price | frozen_amount: frozen_amount}
@@ -446,8 +446,8 @@ defmodule Coinex.FuturesExchange do
         price: decimal_price
       }
 
-      # Use ActionCalculator's position-aware frozen calculation
-      required_balance = ActionCalculator.calculate_frozen_for_order(temp_order, state.positions)
+      # Use ActionCalculator's position-aware frozen calculation, considering pending orders
+      required_balance = ActionCalculator.calculate_frozen_for_order(temp_order, state.positions, state.orders)
 
       if Decimal.compare(state.balance.available, required_balance) != :lt do
         :ok

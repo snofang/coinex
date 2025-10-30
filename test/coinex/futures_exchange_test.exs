@@ -363,17 +363,16 @@ defmodule Coinex.FuturesExchangeTest do
       balance_after_second = FuturesExchange.get_balance()
       assert Decimal.equal?(balance_after_second.frozen, Decimal.new("0"))
 
-      # Third opposing order: 0.05 BTC (total now 0.13, exceeds 0.1, freeze excess 0.03)
-      # Excess: 0.05 BTC (this order) exceeds remaining position by 0.03
-      # But wait - the calculation is per-order, not cumulative across orders
-      # So this order of 0.05 vs position of 0.1 should freeze 0
+      # Third opposing order: 0.05 BTC
+      # Cumulative pending: 0.05 + 0.03 = 0.08
+      # Remaining position: 0.1 - 0.08 = 0.02
+      # This order of 0.05 exceeds remaining 0.02 by 0.03
+      # So frozen = 0.03 * 51000 = 1530
       {:ok, order3} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.05", "51000.0")
-      # Each order is evaluated independently against the position
-      # Order3: 0.05 < 0.1, so frozen = 0
-      assert Decimal.equal?(order3.frozen_amount, Decimal.new("0"))
+      assert Decimal.equal?(order3.frozen_amount, Decimal.new("1530"))
 
       balance_final = FuturesExchange.get_balance()
-      assert Decimal.equal?(balance_final.frozen, Decimal.new("0"))
+      assert Decimal.equal?(balance_final.frozen, Decimal.new("1530"))
     end
 
     test "short position with opposing buy limit orders" do
@@ -388,17 +387,19 @@ defmodule Coinex.FuturesExchangeTest do
       balance_after_first = FuturesExchange.get_balance()
       assert Decimal.equal?(balance_after_first.frozen, Decimal.new("0"))
 
-      # Place opposing buy limit order larger than position (freeze excess)
-      # Position: 0.1 BTC short, Order: 0.15 BTC buy
-      # Excess: 0.15 - 0.1 = 0.05 BTC
-      # Frozen: 0.05 * 49000 = 2450 USDT
+      # Place opposing buy limit order
+      # Position: 0.1 BTC short
+      # Pending order1: 0.05 BTC buy
+      # Remaining: 0.1 - 0.05 = 0.05 BTC
+      # Order2: 0.15 BTC buy exceeds remaining by 0.15 - 0.05 = 0.10 BTC
+      # Frozen for order2: 0.10 * 49000 = 4900 USDT
       {:ok, order2} = FuturesExchange.submit_limit_order("BTCUSDT", "buy", "0.15", "49000.0")
 
-      expected_frozen = Decimal.mult(Decimal.new("0.05"), Decimal.new("49000.0"))
+      expected_frozen = Decimal.mult(Decimal.new("0.10"), Decimal.new("49000.0"))
       assert Decimal.equal?(order2.frozen_amount, expected_frozen)
 
       balance_final = FuturesExchange.get_balance()
-      # Total frozen should be the excess from order2 only
+      # Total frozen should be the excess from order2
       assert Decimal.equal?(balance_final.frozen, expected_frozen)
     end
 
@@ -488,17 +489,21 @@ defmodule Coinex.FuturesExchangeTest do
 
       balance_after_position = FuturesExchange.get_balance()
 
-      # Order 1: within position (0 frozen)
+      # Order 1: SELL 0.05 (pending = 0, remaining = 0.1, no freeze)
       {:ok, order1} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.05", "51000.0")
       assert Decimal.equal?(order1.frozen_amount, Decimal.new("0"))
 
-      # Order 2: exceeds position (freeze excess)
-      {:ok, order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.15", "51000.0")
-      frozen2 = Decimal.mult(Decimal.new("0.05"), Decimal.new("51000.0"))
+      # Order 2: SELL 0.08
+      # pending = 0.05, remaining = 0.05, excess = 0.03
+      # frozen = 0.03 * 51000 = 1530
+      {:ok, order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.08", "51000.0")
+      frozen2 = Decimal.mult(Decimal.new("0.03"), Decimal.new("51000.0"))
       assert Decimal.equal?(order2.frozen_amount, frozen2)
 
-      # Order 3: exceeds position (freeze excess)
-      {:ok, order3} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.12", "51000.0")
+      # Order 3: SELL 0.02
+      # pending = 0.13, remaining = -0.03 (already exceeded)
+      # frozen = 0.02 * 51000 = 1020 (full amount since position exceeded)
+      {:ok, order3} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.02", "51000.0")
       frozen3 = Decimal.mult(Decimal.new("0.02"), Decimal.new("51000.0"))
       assert Decimal.equal?(order3.frozen_amount, frozen3)
 
@@ -676,19 +681,17 @@ defmodule Coinex.FuturesExchangeTest do
       FuturesExchange.set_current_price(Decimal.new("50000.0"))
       {:ok, _} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.15")
 
-      # Place multiple opposing orders
-      # 0 frozen
-      {:ok, order1} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.08", "51000.0")
-      # freeze 0.03*52000
-      {:ok, order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.18", "52000.0")
-      # 0 frozen
-      {:ok, order3} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.05", "53000.0")
+      # Place multiple opposing orders with cumulative frozen calculation
+      # Order1: SELL 0.10 (pending = 0, remaining = 0.15, no freeze)
+      {:ok, order1} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.10", "51000.0")
+
+      # Order2: SELL 0.08 (pending = 0.10, remaining = 0.05, excess = 0.03, frozen = 0.03 * 52000)
+      {:ok, order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.08", "52000.0")
 
       # Verify frozen amounts
       assert Decimal.equal?(order1.frozen_amount, Decimal.new("0"))
       frozen2 = Decimal.mult(Decimal.new("0.03"), Decimal.new("52000.0"))
       assert Decimal.equal?(order2.frozen_amount, frozen2)
-      assert Decimal.equal?(order3.frozen_amount, Decimal.new("0"))
 
       balance_with_orders = FuturesExchange.get_balance()
       assert Decimal.equal?(balance_with_orders.frozen, frozen2)
@@ -696,6 +699,7 @@ defmodule Coinex.FuturesExchangeTest do
       # Cancel order 2 (had frozen funds)
       {:ok, _} = FuturesExchange.cancel_order(order2.id)
       balance_after_cancel = FuturesExchange.get_balance()
+      # After canceling order2, no frozen funds remain
       assert Decimal.equal?(balance_after_cancel.frozen, Decimal.new("0"))
 
       # Fill order 1 by raising price
@@ -704,26 +708,21 @@ defmodule Coinex.FuturesExchangeTest do
       positions_after_fill1 = FuturesExchange.get_positions()
       assert length(positions_after_fill1) == 1
       position = List.first(positions_after_fill1)
-      assert Decimal.equal?(position.amount, Decimal.new("0.07"))
+      assert Decimal.equal?(position.amount, Decimal.new("0.05"))
       assert position.side == "long"
 
       balance_after_fill1 = FuturesExchange.get_balance()
+      # No frozen funds after order1 filled and order2 cancelled
       assert Decimal.equal?(balance_after_fill1.frozen, Decimal.new("0"))
-
-      # Cancel order 3
-      {:ok, _} = FuturesExchange.cancel_order(order3.id)
-
-      balance_final = FuturesExchange.get_balance()
-      assert Decimal.equal?(balance_final.frozen, Decimal.new("0"))
 
       # Verify balance integrity
       expected_total =
         Decimal.add(
-          Decimal.add(balance_final.available, balance_final.frozen),
-          balance_final.unrealized_pnl
+          Decimal.add(balance_after_fill1.available, balance_after_fill1.frozen),
+          balance_after_fill1.unrealized_pnl
         )
 
-      assert Decimal.equal?(balance_final.total, expected_total)
+      assert Decimal.equal?(balance_after_fill1.total, expected_total)
     end
 
     test "fill order that reverses position, then cancel another order" do
@@ -731,12 +730,14 @@ defmodule Coinex.FuturesExchangeTest do
       FuturesExchange.set_current_price(Decimal.new("50000.0"))
       {:ok, _} = FuturesExchange.submit_market_order("BTCUSDT", "buy", "0.1")
 
-      # Place two opposing orders that exceed position
+      # Place two opposing orders with cumulative frozen calculation
+      # Order1: SELL 0.15 (pending = 0, remaining = 0.1, excess = 0.05, frozen = 0.05 * 51000)
       {:ok, order1} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.15", "51000.0")
       frozen1 = Decimal.mult(Decimal.new("0.05"), Decimal.new("51000.0"))
       assert Decimal.equal?(order1.frozen_amount, frozen1)
 
-      {:ok, order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.12", "52000.0")
+      # Order2: SELL 0.02 (pending = 0.15, remaining = -0.05, frozen = 0.02 * 52000)
+      {:ok, order2} = FuturesExchange.submit_limit_order("BTCUSDT", "sell", "0.02", "52000.0")
       frozen2 = Decimal.mult(Decimal.new("0.02"), Decimal.new("52000.0"))
       assert Decimal.equal?(order2.frozen_amount, frozen2)
 
