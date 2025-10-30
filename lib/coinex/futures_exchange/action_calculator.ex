@@ -140,11 +140,17 @@ defmodule Coinex.FuturesExchange.ActionCalculator do
     # Calculate total unrealized PnL
     total_pnl = calculate_total_unrealized_pnl(updated_positions)
 
+    # Calculate total properly: available + frozen + unrealized_pnl
+    updated_total =
+      Decimal.add(
+        Decimal.add(balance.available, balance.frozen),
+        total_pnl
+      )
+
     new_balance = %{
       balance
       | unrealized_pnl: total_pnl,
-        # Base balance + PnL
-        total: Decimal.add(Decimal.new("10000"), total_pnl)
+        total: updated_total
     }
 
     {new_balance, updated_positions}
